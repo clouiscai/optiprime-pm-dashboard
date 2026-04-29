@@ -1,0 +1,116 @@
+from datetime import date
+
+from sqlalchemy.orm import Session
+
+from models.entities import Blocker, BOMItem, BudgetLog, Project, Sponsor, Task, Team
+
+
+def task_with_open_blockers(task: Task) -> dict:
+    child_count = len(task.children)
+    displayed_progress = round(sum(child.progress for child in task.children) / child_count) if child_count else task.progress
+    return {
+        "id": task.id,
+        "project_id": task.project_id,
+        "team_id": task.team_id,
+        "parent_task_id": task.parent_task_id,
+        "title": task.title,
+        "description": task.description,
+        "owner": task.owner,
+        "status": task.status,
+        "priority": task.priority,
+        "start_date": task.start_date,
+        "due_date": task.due_date,
+        "dependencies": task.dependencies or [],
+        "progress": displayed_progress,
+        "open_blockers": len([b for b in task.blockers if b.status == "open"]),
+        "child_count": child_count,
+        "is_parent": child_count > 0,
+    }
+
+
+def project_dashboard(db: Session, project: Project, team_id: int | None = None) -> dict:
+    task_query = db.query(Task).filter(Task.project_id == project.id)
+    blocker_query = db.query(Blocker).join(Task, Blocker.task_id == Task.id).filter(Task.project_id == project.id, Blocker.status == "open")
+    bom_query = db.query(BOMItem).filter(BOMItem.project_id == project.id)
+    log_query = db.query(BudgetLog).filter(BudgetLog.project_id == project.id)
+    sponsor_query = db.query(Sponsor).filter(Sponsor.project_id == project.id)
+    team = db.get(Team, team_id) if team_id else None
+
+    if team_id:
+        task_query = task_query.filter(Task.team_id == team_id)
+        blocker_query = blocker_query.filter(Task.team_id == team_id)
+        bom_query = bom_query.filter(BOMItem.team_id == team_id)
+        log_query = log_query.filter(BudgetLog.team_id == team_id)
+        sponsor_query = sponsor_query.filter(Sponsor.team_id == team_id)
+
+    tasks = task_query.all()
+    blockers = (
+        blocker_query.all()
+    )
+    bom_items = bom_query.all()
+    logs = log_query.all()
+    sponsors = sponsor_query.all()
+
+    parent_ids = {child.parent_task_id for child in tasks if child.parent_task_id}
+    leaf_tasks = [task for task in tasks if task.id not in parent_ids]
+    progress_tasks = leaf_tasks or tasks
+    done_tasks = len([t for t in progress_tasks if t.status == "done"])
+    overdue_tasks = len([t for t in progress_tasks if t.due_date and t.due_date < date.today() and t.status != "done"])
+    completion = round((sum(t.progress for t in progress_tasks) / len(progress_tasks)), 1) if progress_tasks else 0
+    bom_total = round(sum(item.quantity * item.unit_cost for item in bom_items if not item.sponsored_by), 2)
+    budget_log_total = round(sum(log.amount for log in logs if not log.sponsored_by), 2)
+    sponsor_total = round(sum(sponsor.amount for sponsor in sponsors), 2)
+    actual_spend = round(bom_total + budget_log_total, 2)
+
+    status_counts: dict[str, int] = {"todo": 0, "in_progress": 0, "blocked": 0, "done": 0}
+    priority_counts: dict[str, int] = {}
+    for task in tasks:
+        if task in progress_tasks:
+            status_counts[task.status] = status_counts.get(task.status, 0) + 1
+            priority_counts[task.priority] = priority_counts.get(task.priority, 0) + 1
+    team_summaries = []
+    for summary_team in db.query(Team).filter(Team.project_id == project.id).order_by(Team.code).all():
+        team_tasks = [task for task in db.query(Task).filter(Task.project_id == project.id, Task.team_id == summary_team.id).all()]
+        team_bom_total = sum(item.quantity * item.unit_cost for item in db.query(BOMItem).filter(BOMItem.project_id == project.id, BOMItem.team_id == summary_team.id).all() if not item.sponsored_by)
+        team_log_total = sum(log.amount for log in db.query(BudgetLog).filter(BudgetLog.project_id == project.id, BudgetLog.team_id == summary_team.id).all() if not log.sponsored_by)
+        team_sponsor_total = sum(sponsor.amount for sponsor in db.query(Sponsor).filter(Sponsor.project_id == project.id, Sponsor.team_id == summary_team.id).all())
+        team_parent_ids = {task.parent_task_id for task in team_tasks if task.parent_task_id}
+        team_leaf_tasks = [task for task in team_tasks if task.id not in team_parent_ids] or team_tasks
+        team_planned_budget = summary_team.budget
+        team_summaries.append(
+            {
+                "id": summary_team.id,
+                "code": summary_team.code,
+                "name": summary_team.name,
+                "domain": summary_team.domain,
+                "budget": team_planned_budget,
+                "sponsor_total": round(team_sponsor_total, 2),
+                "completion": round(sum(task.progress for task in team_leaf_tasks) / len(team_leaf_tasks), 1) if team_leaf_tasks else 0,
+                "open_blockers": db.query(Blocker).join(Task).filter(Task.project_id == project.id, Task.team_id == summary_team.id, Blocker.status == "open").count(),
+                "actual_spend": round(team_bom_total + team_log_total, 2),
+            }
+        )
+    if team:
+        planned_budget = team.budget
+    else:
+        planned_budget = sponsor_total if sponsor_total else project.budget
+
+    return {
+        "project": project,
+        "scope": team.code if team else "master",
+        "team": team,
+        "completion": completion,
+        "active_blockers": len(blockers),
+        "overdue_tasks": overdue_tasks,
+        "total_tasks": len(progress_tasks),
+        "done_tasks": done_tasks,
+        "bom_total": bom_total,
+        "budget_log_total": budget_log_total,
+        "sponsor_total": sponsor_total,
+        "planned_budget": planned_budget,
+        "actual_spend": actual_spend,
+        "remaining_budget": round(planned_budget - actual_spend, 2),
+        "status_counts": status_counts,
+        "priority_counts": priority_counts,
+        "team_summaries": team_summaries,
+    }

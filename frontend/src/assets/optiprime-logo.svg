@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="OptiPrime logo">
+  <defs>
+    <linearGradient id="body" x1="36" x2="177" y1="133" y2="211" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff3131"/>
+      <stop offset="0.52" stop-color="#ffb0b8"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+    <linearGradient id="wing" x1="151" x2="231" y1="58" y2="178" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#191919"/>
+      <stop offset="0.54" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#5b5d60"/>
+    </linearGradient>
+  </defs>
+  <path fill="#000" d="M0 0h256v256H0z"/>
+  <path fill="url(#wing)" d="M146 121c26-8 28-36 27-65 33 25 58 72 55 117-18-22-30-50-53-75 12 29 17 57 5 82-13-20-24-44-42-64 9 25 11 47 0 66-8-22-19-43-38-61Z"/>
+  <path fill="#000" d="M177 61c12 33 13 65-8 91l-9-7c17-21 17-48 9-79Zm30 60c9 27 6 51-8 72l-9-8c12-19 14-38 8-59Zm-27-1c10 27 9 50-6 69l-9-8c13-19 12-37 5-58Z"/>
+  <path fill="url(#body)" d="M34 132c29-30 56-33 84-28 8 1 10 6 7 15-3 8-2 12 7 13 16 1 33 9 45 22 14 14 22 31 28 51-28 8-52 4-71-12-21-18-40-20-59-9-15 8-33 9-55 5 4-9 11-13 23-14 13-13 14-26 7-45Z"/>
+  <path fill="#000" d="M33 132c24 17 47 21 73 8-26 28-54 23-85 6-3-5 0-9 12-14Zm39 52c-10-17-11-34-5-52 5 22 13 39 24 51-5 4-12 5-19 1Zm54 13c2-27 12-47 35-57-13 17-19 37-20 61-5 2-10 1-15-4Zm-68-70c8-8 17-9 29-6-5 8-13 11-29 6Z"/>
+  <path fill="#ff3131" d="M57 126c8-7 17-9 30-5-7 8-16 10-30 5Z"/>
+</svg>

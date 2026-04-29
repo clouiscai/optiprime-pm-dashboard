@@ -1,0 +1,304 @@
+from datetime import date as DateType, datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, computed_field
+
+
+class ProjectBase(BaseModel):
+    name: str
+    description: str = ""
+    start_date: DateType | None = None
+    end_date: DateType | None = None
+    budget: float = 0
+
+
+class ProjectCreate(ProjectBase):
+    pass
+
+
+class ProjectRead(ProjectBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
+class TeamBase(BaseModel):
+    project_id: int
+    code: str
+    name: str
+    domain: str
+    description: str = ""
+    budget: float = 0
+
+
+class TeamCreate(TeamBase):
+    pass
+
+
+class TeamUpdate(BaseModel):
+    code: str | None = None
+    name: str | None = None
+    domain: str | None = None
+    description: str | None = None
+    budget: float | None = None
+
+
+class TeamRead(TeamBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
+class TaskBase(BaseModel):
+    project_id: int
+    team_id: int | None = None
+    parent_task_id: int | None = None
+    title: str
+    description: str = ""
+    owner: str = ""
+    status: str = "todo"
+    priority: str = "medium"
+    start_date: DateType | None = None
+    due_date: DateType | None = None
+    dependencies: list[int] = Field(default_factory=list)
+    progress: int = Field(default=0, ge=0, le=100)
+
+
+class TaskCreate(TaskBase):
+    pass
+
+
+class TaskUpdate(BaseModel):
+    team_id: int | None = None
+    parent_task_id: int | None = None
+    title: str | None = None
+    description: str | None = None
+    owner: str | None = None
+    status: str | None = None
+    priority: str | None = None
+    start_date: DateType | None = None
+    due_date: DateType | None = None
+    dependencies: list[int] | None = None
+    progress: int | None = Field(default=None, ge=0, le=100)
+
+
+class TaskRead(TaskBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    open_blockers: int = 0
+    child_count: int = 0
+    is_parent: bool = False
+
+
+class BlockerBase(BaseModel):
+    task_id: int
+    description: str
+    severity: str = "medium"
+    status: str = "open"
+
+
+class BlockerCreate(BlockerBase):
+    pass
+
+
+class BlockerUpdate(BaseModel):
+    description: str | None = None
+    severity: str | None = None
+    status: str | None = None
+
+
+class BlockerRead(BlockerBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    task_title: str | None = None
+    team_id: int | None = None
+    team_code: str | None = None
+
+
+class BOMItemBase(BaseModel):
+    project_id: int
+    team_id: int | None = None
+    name: str
+    quantity: float = 1
+    unit_cost: float = 0
+    sponsored_by: str = ""
+
+
+class BOMItemCreate(BOMItemBase):
+    pass
+
+
+class BOMItemUpdate(BaseModel):
+    team_id: int | None = None
+    name: str | None = None
+    quantity: float | None = None
+    unit_cost: float | None = None
+    sponsored_by: str | None = None
+    note: str = "Updated from RobotX web app"
+
+
+class BOMItemRead(BOMItemBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    version: int
+    last_updated: datetime
+
+    @computed_field
+    @property
+    def total_cost(self) -> float:
+        return round(self.quantity * self.unit_cost, 2)
+
+
+class BOMVersionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    bom_item_id: int
+    name: str
+    quantity: float
+    unit_cost: float
+    sponsored_by: str = ""
+    version: int
+    changed_at: datetime
+    note: str
+
+    @computed_field
+    @property
+    def total_cost(self) -> float:
+        return round(self.quantity * self.unit_cost, 2)
+
+
+class BudgetLogBase(BaseModel):
+    project_id: int
+    team_id: int | None = None
+    category: str
+    amount: float
+    date: DateType
+    notes: str = ""
+    sponsored_by: str = ""
+
+
+class BudgetLogCreate(BudgetLogBase):
+    pass
+
+
+class BudgetLogUpdate(BaseModel):
+    team_id: int | None = None
+    category: str | None = None
+    amount: float | None = None
+    date: DateType | None = None
+    notes: str | None = None
+    sponsored_by: str | None = None
+
+
+class BudgetLogRead(BudgetLogBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
+class SponsorBase(BaseModel):
+    project_id: int
+    team_id: int | None = None
+    name: str
+    amount: float
+    date: DateType
+    notes: str = ""
+
+
+class SponsorCreate(SponsorBase):
+    pass
+
+
+class SponsorUpdate(BaseModel):
+    team_id: int | None = None
+    name: str | None = None
+    amount: float | None = None
+    date: DateType | None = None
+    notes: str | None = None
+
+
+class SponsorRead(SponsorBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
+class UserBase(BaseModel):
+    team_id: int | None = None
+    name: str
+    role: str = "engineer"
+
+
+class UserCreate(UserBase):
+    pass
+
+
+class UserUpdate(BaseModel):
+    team_id: int | None = None
+    name: str | None = None
+    role: str | None = None
+
+
+class UserRead(UserBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
+class TaskAuditRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    changed_at: datetime
+    changed_by: str
+    field: str
+    old_value: str
+    new_value: str
+
+
+class DashboardRead(BaseModel):
+    project: ProjectRead
+    scope: str = "master"
+    team: TeamRead | None = None
+    completion: float
+    active_blockers: int
+    overdue_tasks: int
+    total_tasks: int
+    done_tasks: int
+    bom_total: float
+    budget_log_total: float
+    sponsor_total: float = 0
+    planned_budget: float = 0
+    actual_spend: float
+    remaining_budget: float
+    status_counts: dict[str, int]
+    priority_counts: dict[str, int]
+    team_summaries: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class TokenCheck(BaseModel):
+    ok: bool
+    user: str = "OptiPrime"
+    role: str = "admin"
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    token: str
+    user: str = "OptiPrime"
+    role: str = "admin"
+
+
+class RealtimeEvent(BaseModel):
+    type: str
+    payload: dict[str, Any]
