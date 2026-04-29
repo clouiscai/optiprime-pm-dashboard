@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import optiPrimeLogo from "./assets/OptiPrime_logo_blackbg.jpg";
 import { apiFetch, downloadCsv, getApiBase, getWsUrl } from "./api";
 
-const tabs = ["Dashboard", "Tasks", "Kanban", "Gantt", "BOM/Budget", "Members", "Sponsors", "Blockers"];
+const tabs = ["Dashboard", "Tasks", "Kanban", "Gantt", "BOM/Budget", "Equipments/Asset", "Members", "Sponsors", "Blockers"];
 const statusColumns = [
   ["todo", "To Do"],
   ["in_progress", "In Progress"],
@@ -61,12 +61,17 @@ function teamQuery(teamId) {
   return teamId === "master" ? "" : `?team_id=${teamId}`;
 }
 
+function taskTeamQuery(teamId, taskScope = "scope") {
+  if (teamId === "master") return taskScope === "general" ? "?general=true" : "";
+  return `?team_id=${teamId}`;
+}
+
 function teamCode(teams, id) {
-  return teams.find((team) => team.id === id)?.code || "Team";
+  return id ? teams.find((team) => team.id === id)?.code || "Team" : "General";
 }
 
 function teamName(teams, id) {
-  return teams.find((team) => team.id === id)?.code || "";
+  return id ? teams.find((team) => team.id === id)?.code || "" : "General";
 }
 
 function wbsNumber(task, tasks) {
@@ -119,7 +124,7 @@ export default function App() {
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState(null);
   const [selectedTeam, setSelectedTeam] = useState("master");
-  const [data, setData] = useState({ dashboard: null, tasks: [], blockers: [], bom: [], budget: [], sponsors: [], users: [], teams: [] });
+  const [data, setData] = useState({ dashboard: null, tasks: [], blockers: [], bom: [], budget: [], sponsors: [], assets: [], users: [], teams: [] });
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const [timelineStart, setTimelineStart] = useState("");
@@ -140,7 +145,7 @@ export default function App() {
     setBusy(true);
     try {
       const query = teamQuery(selectedTeam);
-      const [teams, dashboard, tasks, blockers, bom, budget, sponsors, users] = await Promise.all([
+      const [teams, dashboard, tasks, blockers, bom, budget, sponsors, assets, users] = await Promise.all([
         apiFetch(`/projects/${projectId}/teams`, token),
         apiFetch(`/projects/${projectId}/dashboard${query}`, token),
         apiFetch(`/projects/${projectId}/tasks${query}`, token),
@@ -148,6 +153,7 @@ export default function App() {
         apiFetch(`/projects/${projectId}/bom${query}`, token),
         apiFetch(`/projects/${projectId}/budget${query}`, token),
         apiFetch(`/projects/${projectId}/sponsors`, token),
+        apiFetch(`/projects/${projectId}/assets${query}`, token),
         apiFetch("/users", token),
       ]);
       setData({
@@ -158,6 +164,7 @@ export default function App() {
         bom: Array.isArray(bom) ? bom : [],
         budget: Array.isArray(budget) ? budget : [],
         sponsors: Array.isArray(sponsors) ? sponsors : [],
+        assets: Array.isArray(assets) ? assets : [],
         users: Array.isArray(users) ? users : [],
       });
     } catch (error) {
@@ -355,6 +362,18 @@ export default function App() {
             onRefresh={refresh}
           />
         )}
+        {activeTab === "Equipments/Asset" && (
+          <Assets
+            projectId={projectId}
+            teamId={scopedTeamId}
+            selectedTeam={selectedTeam}
+            token={token}
+            teams={data.teams}
+            assets={data.assets}
+            canEdit={canEdit}
+            onRefresh={refresh}
+          />
+        )}
         {activeTab === "Members" && (
           <Members
             teamId={scopedTeamId}
@@ -376,6 +395,7 @@ export default function App() {
             sponsors={data.sponsors}
             bom={data.bom}
             budget={data.budget}
+            assets={data.assets}
             dashboard={data.dashboard}
             canEdit={canEdit}
             onRefresh={refresh}
@@ -468,16 +488,17 @@ function MetricButton({ label, value, detail, tone = "", onClick }) {
 }
 
 function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users, canEdit, onRefresh, onPatchTask, onDeleteTask }) {
-  const defaultTeam = teamId || teams[0]?.id || null;
   const isMaster = selectedTeam === "master";
+  const defaultTeam = isMaster ? null : teamId || teams[0]?.id || null;
   const [draft, setDraft] = useState(emptyTask(projectId, defaultTeam));
   const [filter, setFilter] = useState("all");
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [taskEdit, setTaskEdit] = useState({ title: "", description: "" });
   const wbsTasks = useMemo(() => sortWbs(tasks), [tasks]);
   const filtered = filter === "all" ? wbsTasks : wbsTasks.filter((task) => task.priority === filter || task.status === filter);
-  const parentOptions = wbsTasks.filter((task) => task.team_id === Number(draft.team_id) && task.parent_task_id !== task.id);
-  const draftMembers = users.filter((user) => user.team_id === Number(draft.team_id));
+  const draftTeamId = draft.team_id ? Number(draft.team_id) : null;
+  const parentOptions = wbsTasks.filter((task) => (task.team_id || null) === draftTeamId && task.parent_task_id !== task.id);
+  const draftMembers = draftTeamId ? users.filter((user) => user.team_id === draftTeamId) : users;
 
   useEffect(() => {
     setDraft(emptyTask(projectId, defaultTeam));
@@ -485,8 +506,8 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
 
   async function createTask(event) {
     event.preventDefault();
-    if (!draft.title.trim() || !draft.team_id) return;
-    await apiFetch("/tasks", token, { method: "POST", body: JSON.stringify({ ...draft, project_id: projectId, team_id: Number(draft.team_id) }) });
+    if (!draft.title.trim()) return;
+    await apiFetch("/tasks", token, { method: "POST", body: JSON.stringify({ ...draft, project_id: projectId, team_id: draft.team_id ? Number(draft.team_id) : null }) });
     setDraft(emptyTask(projectId, defaultTeam));
     await onRefresh();
   }
@@ -512,8 +533,8 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
         {isMaster ? (
           <label className="compact-field">
             <span>Team</span>
-            <select value={draft.team_id || ""} onChange={(event) => setDraft({ ...draft, team_id: Number(event.target.value), parent_task_id: null })}>
-              <option value="">Team</option>
+            <select value={draft.team_id || ""} onChange={(event) => setDraft({ ...draft, team_id: event.target.value ? Number(event.target.value) : null, parent_task_id: null })}>
+              <option value="">General</option>
               {teams.map((team) => (
                 <option value={team.id} key={team.id}>{team.code}</option>
               ))}
@@ -572,7 +593,7 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
           <option value="blocked">Blocked</option>
           <option value="done">Done</option>
         </select>
-        <button onClick={() => downloadCsv(`/projects/${projectId}/tasks/export.csv${teamQuery(selectedTeam)}`, token, "robotx-tasks.csv")}>Export CSV</button>
+        <button onClick={() => downloadCsv(`/projects/${projectId}/tasks/export.csv${taskTeamQuery(selectedTeam)}`, token, "robotx-tasks.csv")}>Export CSV</button>
       </div>
 
       <div className="table-wrap">
@@ -602,7 +623,8 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
                   </td>
                   {isMaster && (
                     <td>
-                      <select value={task.team_id || ""} disabled={!canEdit} onChange={(event) => onPatchTask(task.id, { team_id: Number(event.target.value) })}>
+                      <select value={task.team_id || ""} disabled={!canEdit} onChange={(event) => onPatchTask(task.id, { team_id: event.target.value ? Number(event.target.value) : null })}>
+                        <option value="">General</option>
                         {teams.map((team) => (
                           <option value={team.id} key={team.id}>{team.code}</option>
                         ))}
@@ -626,7 +648,7 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
                     <select value={task.parent_task_id || ""} disabled={!canEdit} onChange={(event) => onPatchTask(task.id, { parent_task_id: event.target.value ? Number(event.target.value) : null })}>
                       <option value="">None</option>
                       {wbsTasks
-                        .filter((candidate) => candidate.id !== task.id && candidate.team_id === task.team_id && !isDescendantTask(candidate, task.id, wbsTasks))
+                        .filter((candidate) => candidate.id !== task.id && (candidate.team_id || null) === (task.team_id || null) && !isDescendantTask(candidate, task.id, wbsTasks))
                         .map((candidate) => (
                           <option value={candidate.id} key={candidate.id}>{wbsNumber(candidate, wbsTasks)} {candidate.title}</option>
                         ))}
@@ -636,7 +658,7 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
                     <select value={task.owner || ""} disabled={!canEdit} onChange={(event) => onPatchTask(task.id, { owner: event.target.value })}>
                       <option value="">Unassigned</option>
                       {users
-                        .filter((user) => user.team_id === task.team_id)
+                        .filter((user) => task.team_id ? user.team_id === task.team_id : true)
                         .map((user) => (
                           <option key={user.id}>{user.name}</option>
                         ))}
@@ -668,7 +690,7 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
                     )}
                   </td>
                   <td>
-                    <input className="progress-slider" type="range" min="0" max="100" value={task.progress} style={{ "--progress": `${task.progress}%` }} disabled={task.is_parent || !canEdit} title={task.is_parent ? "Parent progress is averaged from subtasks" : "Task progress"} onChange={(event) => onPatchTask(task.id, { progress: Number(event.target.value) })} />
+                    <input className="progress-slider" type="range" min="0" max="100" step="5" value={task.progress} style={{ "--progress": `${task.progress}%` }} disabled={task.is_parent || !canEdit} title={task.is_parent ? "Parent progress is averaged from subtasks" : "Task progress"} onChange={(event) => onPatchTask(task.id, { progress: Number(event.target.value) })} />
                     <span>{task.progress}%{task.is_parent ? " avg" : ""}</span>
                   </td>
                   {canEdit && (
@@ -1369,6 +1391,217 @@ function BomRow({ item, token, teams, isMaster, canEdit, categories, history, on
   );
 }
 
+function Assets({ projectId, teamId, selectedTeam, token, teams, assets, canEdit, onRefresh }) {
+  const isMaster = selectedTeam === "master";
+  const defaultTeam = isMaster ? null : teamId || teams[0]?.id || null;
+  const emptyDraft = {
+    project_id: projectId,
+    team_id: defaultTeam,
+    category: "",
+    name: "",
+    source: "owned",
+    provider: "",
+    quantity: 1,
+    estimated_value: 0,
+    notes: "",
+  };
+  const [draft, setDraft] = useState(emptyDraft);
+  const categories = [...new Set(assets.map((asset) => asset.category?.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const totalAssets = assets.reduce((total, asset) => total + Number(asset.quantity || 0), 0);
+  const loanedCount = assets.filter((asset) => asset.source === "loaned").length;
+  const sponsoredValue = assets.filter((asset) => asset.source === "sponsored").reduce((total, asset) => total + Number(asset.estimated_value || 0), 0);
+
+  useEffect(() => {
+    setDraft({
+      project_id: projectId,
+      team_id: defaultTeam,
+      category: "",
+      name: "",
+      source: "owned",
+      provider: "",
+      quantity: 1,
+      estimated_value: 0,
+      notes: "",
+    });
+  }, [projectId, defaultTeam, selectedTeam]);
+
+  async function addAsset(event) {
+    event.preventDefault();
+    if (!draft.name.trim()) return;
+    await apiFetch("/assets", token, {
+      method: "POST",
+      body: JSON.stringify({
+        ...draft,
+        project_id: projectId,
+        team_id: draft.team_id ? Number(draft.team_id) : null,
+        category: draft.category.trim(),
+        name: draft.name.trim(),
+        asset_tag: "",
+        provider: draft.provider.trim(),
+        quantity: Number(draft.quantity),
+        estimated_value: Number(draft.estimated_value),
+        condition: "",
+        location: "",
+        assigned_to: "",
+        start_date: null,
+        end_date: null,
+        notes: draft.notes.trim(),
+      }),
+    });
+    setDraft({ ...emptyDraft, category: draft.category.trim(), source: draft.source });
+    await onRefresh();
+  }
+
+  async function patchAsset(id, patch) {
+    await apiFetch(`/assets/${id}`, token, { method: "PATCH", body: JSON.stringify(patch) });
+    await onRefresh();
+  }
+
+  async function deleteAsset(asset) {
+    if (!window.confirm(`Delete asset "${asset.name}"?`)) return;
+    await apiFetch(`/assets/${asset.id}`, token, { method: "DELETE" });
+    await onRefresh();
+  }
+
+  return (
+    <section className="stack">
+      <div className="metrics-grid">
+        <Metric label="Asset Qty" value={totalAssets} detail="Total equipment quantity in this scope" />
+        <Metric label="Loaned" value={loanedCount} detail="Assets currently marked as loaned" />
+        <Metric label="Sponsored" value={money(sponsoredValue)} detail="Estimated sponsored asset value" />
+        <Metric label="Records" value={assets.length} detail="Tracked equipment entries" />
+      </div>
+
+      {canEdit && (
+        <form className="asset-form" onSubmit={addAsset}>
+          <datalist id="asset-category-options">
+            {categories.map((category) => <option value={category} key={category} />)}
+          </datalist>
+          <label className="compact-field">
+            <span>Team</span>
+            {isMaster ? (
+              <select value={draft.team_id || ""} onChange={(event) => setDraft({ ...draft, team_id: event.target.value ? Number(event.target.value) : null })}>
+                <option value="">General</option>
+                {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
+              </select>
+            ) : (
+              <div className="locked-field">{teamName(teams, defaultTeam)}</div>
+            )}
+          </label>
+          <label className="compact-field">
+            <span>Category</span>
+            <input list="asset-category-options" placeholder="Category" value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} />
+          </label>
+          <label className="compact-field">
+            <span>Asset</span>
+            <input placeholder="Equipment / asset name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+          </label>
+          <label className="compact-field">
+            <span>Source</span>
+            <select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value })}>
+              <option value="owned">Owned</option>
+              <option value="loaned">Loaned</option>
+              <option value="sponsored">Sponsored</option>
+            </select>
+          </label>
+          <label className="compact-field">
+            <span>Provider</span>
+            <input placeholder="Sponsor / lender" value={draft.provider} onChange={(event) => setDraft({ ...draft, provider: event.target.value })} />
+          </label>
+          <label className="compact-field">
+            <span>Qty</span>
+            <input type="number" min="0" step="1" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} />
+          </label>
+          <label className="compact-field">
+            <span>Value</span>
+            <input type="number" min="0" step="0.01" value={draft.estimated_value} onChange={(event) => setDraft({ ...draft, estimated_value: event.target.value })} />
+          </label>
+          <label className="compact-field asset-notes-field">
+            <span>Notes</span>
+            <input placeholder="Notes" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
+          </label>
+          <button>Add Asset</button>
+        </form>
+      )}
+
+      <div className="table-wrap">
+        <table className="asset-table">
+          <thead>
+            <tr>
+              <th>Team</th><th>Category</th><th>Asset</th><th>Source</th><th>Provider</th><th>Qty</th><th>Value</th><th>Notes</th>{canEdit && <th></th>}
+            </tr>
+          </thead>
+          <tbody>
+            {assets.map((asset) => (
+              <AssetRow key={asset.id} asset={asset} teams={teams} canEdit={canEdit} onPatch={patchAsset} onDelete={deleteAsset} />
+            ))}
+            {assets.length === 0 && (
+              <tr><td colSpan={canEdit ? "9" : "8"}>No equipment or assets tracked yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function AssetRow({ asset, teams, canEdit, onPatch, onDelete }) {
+  const [draft, setDraft] = useState({ ...asset });
+
+  useEffect(() => {
+    setDraft({ ...asset });
+  }, [asset]);
+
+  async function saveAsset() {
+    await onPatch(asset.id, {
+      team_id: draft.team_id ? Number(draft.team_id) : null,
+      category: draft.category || "",
+      name: draft.name,
+      source: draft.source,
+      provider: draft.provider || "",
+      quantity: Number(draft.quantity),
+      estimated_value: Number(draft.estimated_value),
+      notes: draft.notes || "",
+    });
+  }
+
+  return (
+    <tr>
+      <td>
+        <select value={draft.team_id || ""} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, team_id: event.target.value ? Number(event.target.value) : null })}>
+          <option value="">General</option>
+          {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
+        </select>
+      </td>
+      <td><input value={draft.category || ""} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, category: event.target.value })} /></td>
+      <td><input value={draft.name} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></td>
+      <td>
+        <select value={draft.source} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, source: event.target.value })}>
+          <option value="owned">Owned</option>
+          <option value="loaned">Loaned</option>
+          <option value="sponsored">Sponsored</option>
+        </select>
+      </td>
+      <td><input value={draft.provider || ""} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, provider: event.target.value })} /></td>
+      <td><input type="number" min="0" step="1" value={draft.quantity} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} /></td>
+      <td>
+        {canEdit ? (
+          <input placeholder="NA" type={Number(draft.estimated_value || 0) ? "number" : "text"} min="0" step="0.01" value={Number(draft.estimated_value || 0) ? draft.estimated_value : "NA"} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, estimated_value: event.target.value === "NA" ? 0 : event.target.value })} onFocus={() => Number(draft.estimated_value || 0) === 0 && setDraft({ ...draft, estimated_value: "" })} onBlur={() => draft.estimated_value === "" && setDraft({ ...draft, estimated_value: 0 })} />
+        ) : (
+          Number(draft.estimated_value || 0) ? money(draft.estimated_value) : "NA"
+        )}
+      </td>
+      <td><input value={draft.notes || ""} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></td>
+      {canEdit && (
+        <td className="row-actions">
+          <button onClick={saveAsset}>Save</button>
+          <button className="danger-button" onClick={() => onDelete(asset)}>Delete</button>
+        </td>
+      )}
+    </tr>
+  );
+}
+
 function Members({ teamId, selectedTeam, token, teams, users, canEdit, onRefresh }) {
   const defaultTeam = teamId || teams[0]?.id || null;
   const isMaster = selectedTeam === "master";
@@ -1470,7 +1703,7 @@ function MemberRow({ user, teams, isMaster, token, canEdit, onRefresh }) {
   );
 }
 
-function Sponsors({ projectId, selectedTeam, token, teams, sponsors, bom, budget, dashboard, canEdit, onRefresh }) {
+function Sponsors({ projectId, selectedTeam, token, teams, sponsors, bom, budget, assets, dashboard, canEdit, onRefresh }) {
   const [draft, setDraft] = useState({ project_id: projectId, team_id: null, name: "", amount: 0, date: today, notes: "" });
   const sponsoredSupport = [
     ...(bom || [])
@@ -1494,6 +1727,17 @@ function Sponsors({ projectId, selectedTeam, token, teams, sponsors, bom, budget
         name: log.category,
         value: log.amount,
         notes: log.notes || shortDate(log.date),
+      })),
+    ...(assets || [])
+      .filter((asset) => asset.source === "sponsored" && asset.provider?.trim())
+      .map((asset) => ({
+        id: `asset-${asset.id}`,
+        sponsor: asset.provider,
+        type: "Asset",
+        team_id: asset.team_id,
+        name: asset.name,
+        value: asset.estimated_value || 0,
+        notes: `${asset.category || "Asset"}${asset.asset_tag ? ` - ${asset.asset_tag}` : ""}`,
       })),
   ];
   const inKindTotal = sponsoredSupport.reduce((total, item) => total + Number(item.value || 0), 0);

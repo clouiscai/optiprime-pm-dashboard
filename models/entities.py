@@ -21,6 +21,7 @@ class Project(Base):
     bom_items: Mapped[list["BOMItem"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     budget_logs: Mapped[list["BudgetLog"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     sponsors: Mapped[list["Sponsor"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    assets: Mapped[list["Asset"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
 class Team(Base):
@@ -39,6 +40,7 @@ class Team(Base):
     bom_items: Mapped[list["BOMItem"]] = relationship(back_populates="team")
     budget_logs: Mapped[list["BudgetLog"]] = relationship(back_populates="team")
     sponsors: Mapped[list["Sponsor"]] = relationship(back_populates="team")
+    assets: Mapped[list["Asset"]] = relationship(back_populates="team")
     users: Mapped[list["User"]] = relationship(back_populates="team")
 
 
@@ -145,6 +147,30 @@ class Sponsor(Base):
 
     project: Mapped[Project] = relationship(back_populates="sponsors")
     team: Mapped[Team | None] = relationship(back_populates="sponsors")
+
+
+class Asset(Base):
+    __tablename__ = "assets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True, index=True)
+    category: Mapped[str] = mapped_column(String(120), default="")
+    name: Mapped[str] = mapped_column(String(220), nullable=False)
+    asset_tag: Mapped[str] = mapped_column(String(120), default="")
+    source: Mapped[str] = mapped_column(String(32), default="owned", index=True)
+    provider: Mapped[str] = mapped_column(String(160), default="")
+    quantity: Mapped[float] = mapped_column(Float, default=1.0)
+    estimated_value: Mapped[float] = mapped_column(Float, default=0.0)
+    condition: Mapped[str] = mapped_column(String(80), default="")
+    location: Mapped[str] = mapped_column(String(160), default="")
+    assigned_to: Mapped[str] = mapped_column(String(160), default="")
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+
+    project: Mapped[Project] = relationship(back_populates="assets")
+    team: Mapped[Team | None] = relationship(back_populates="assets")
 
 
 class User(Base):

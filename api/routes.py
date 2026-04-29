@@ -7,8 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, WebSocke
 from sqlalchemy.orm import Session, joinedload
 
 from database.session import get_db
-from models.entities import Blocker, BOMItem, BOMVersion, BudgetLog, Project, Sponsor, Task, TaskAuditLog, Team, User
+from models.entities import Asset, Blocker, BOMItem, BOMVersion, BudgetLog, Project, Sponsor, Task, TaskAuditLog, Team, User
 from models.schemas import (
+    AssetCreate,
+    AssetRead,
+    AssetUpdate,
     BlockerCreate,
     BlockerRead,
     BlockerUpdate,
@@ -113,6 +116,16 @@ def validate_parent_task(db: Session, task: Task, parent_task_id: int | None):
             break
 
 
+def status_for_progress(progress: int, current_status: str) -> str:
+    if current_status == "blocked":
+        return current_status
+    if progress >= 100:
+        return "done"
+    if progress <= 0:
+        return "todo"
+    return "in_progress"
+
+
 @router.get("/auth/verify", response_model=TokenCheck)
 def verify_token(token: Protected):
     return TokenCheck(ok=True, role=role_for_token(token) or "viewer")
@@ -178,14 +191,16 @@ def get_dashboard(project_id: int, _: Protected, team_id: int | None = None, db:
 
 
 @router.get("/projects/{project_id}/tasks", response_model=list[TaskRead])
-def list_tasks(project_id: int, _: Protected, team_id: int | None = None, db: Session = Depends(get_db)):
+def list_tasks(project_id: int, _: Protected, team_id: int | None = None, general: bool = False, db: Session = Depends(get_db)):
     get_project_or_404(db, project_id)
     query = (
         db.query(Task)
         .options(joinedload(Task.blockers), joinedload(Task.children))
         .filter(Task.project_id == project_id)
     )
-    if team_id:
+    if general:
+        query = query.filter(Task.team_id.is_(None))
+    elif team_id:
         query = query.filter(Task.team_id == team_id)
     tasks = query.order_by(Task.due_date.is_(None), Task.due_date, Task.id).all()
     return [task_with_open_blockers(task) for task in tasks]
@@ -221,6 +236,9 @@ async def update_task(task_id: int, payload: TaskUpdate, _: Writable, db: Sessio
     shadow = Task(project_id=task.project_id, team_id=prospective_team)
     shadow.id = task.id
     validate_parent_task(db, shadow, prospective_parent)
+    if "progress" in updates:
+        requested_status = updates.get("status", task.status)
+        updates["status"] = status_for_progress(int(updates["progress"] or 0), requested_status)
     for field, new_value in updates.items():
         old_value = getattr(task, field)
         if old_value != new_value:
@@ -265,9 +283,11 @@ def task_audit(task_id: int, _: Protected, db: Session = Depends(get_db)):
 
 
 @router.get("/projects/{project_id}/tasks/export.csv")
-def export_tasks(project_id: int, _: Protected, team_id: int | None = None, db: Session = Depends(get_db)):
+def export_tasks(project_id: int, _: Protected, team_id: int | None = None, general: bool = False, db: Session = Depends(get_db)):
     query = db.query(Task).filter(Task.project_id == project_id)
-    if team_id:
+    if general:
+        query = query.filter(Task.team_id.is_(None))
+    elif team_id:
         query = query.filter(Task.team_id == team_id)
     tasks = query.order_by(Task.id).all()
     rows = [
@@ -595,6 +615,51 @@ async def delete_sponsor(sponsor_id: int, _: Writable, db: Session = Depends(get
     db.delete(sponsor)
     db.commit()
     await manager.broadcast("sponsor.updated", {"project_id": project_id})
+    return Response(status_code=204)
+
+
+@router.get("/projects/{project_id}/assets", response_model=list[AssetRead])
+def list_assets(project_id: int, _: Protected, team_id: int | None = None, db: Session = Depends(get_db)):
+    get_project_or_404(db, project_id)
+    query = db.query(Asset).filter(Asset.project_id == project_id)
+    if team_id:
+        query = query.filter(Asset.team_id == team_id)
+    return query.order_by(Asset.category, Asset.name, Asset.id).all()
+
+
+@router.post("/assets", response_model=AssetRead)
+async def create_asset(payload: AssetCreate, _: Writable, db: Session = Depends(get_db)):
+    get_project_or_404(db, payload.project_id)
+    asset = Asset(**payload.model_dump())
+    db.add(asset)
+    db.commit()
+    db.refresh(asset)
+    await manager.broadcast("asset.updated", {"project_id": asset.project_id, "asset_id": asset.id})
+    return asset
+
+
+@router.patch("/assets/{asset_id}", response_model=AssetRead)
+async def update_asset(asset_id: int, payload: AssetUpdate, _: Writable, db: Session = Depends(get_db)):
+    asset = db.get(Asset, asset_id)
+    if not asset:
+        raise HTTPException(404, "Asset not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(asset, field, value)
+    db.commit()
+    db.refresh(asset)
+    await manager.broadcast("asset.updated", {"project_id": asset.project_id, "asset_id": asset.id})
+    return asset
+
+
+@router.delete("/assets/{asset_id}", status_code=204)
+async def delete_asset(asset_id: int, _: Writable, db: Session = Depends(get_db)):
+    asset = db.get(Asset, asset_id)
+    if not asset:
+        raise HTTPException(404, "Asset not found")
+    project_id = asset.project_id
+    db.delete(asset)
+    db.commit()
+    await manager.broadcast("asset.updated", {"project_id": project_id})
     return Response(status_code=204)
 
 

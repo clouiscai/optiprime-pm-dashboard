@@ -452,12 +452,34 @@ nav button:hover {
 }
 
 .task-composer {
+  align-items: end;
+  column-gap: 10px;
   display: grid;
   grid-template-columns: minmax(220px, 1fr) 180px 140px 150px 110px;
+  row-gap: 10px;
 }
 
 .task-composer-wide {
-  grid-template-columns: minmax(220px, 1fr) 92px 160px minmax(160px, 1fr) 120px 145px 145px 100px;
+  grid-template-columns: minmax(220px, 1fr) 92px 160px minmax(160px, 1fr) 120px 132px 132px 108px;
+}
+
+.task-composer button[type="submit"] {
+  align-self: end;
+  min-height: 36px;
+  min-width: 108px;
+  width: 100%;
+  white-space: nowrap;
+}
+
+.task-composer-wide .compact-field:nth-of-type(6),
+.task-composer-wide .compact-field:nth-of-type(7) {
+  min-width: 132px;
+}
+
+.task-composer-wide .compact-field:nth-of-type(6) input,
+.task-composer-wide .compact-field:nth-of-type(7) input {
+  min-width: 132px;
+  padding: 0 8px;
 }
 
 .bom-form {
@@ -615,6 +637,23 @@ nav button:hover {
   gap: 10px;
 }
 
+.asset-form {
+  align-items: end;
+  display: grid;
+  grid-template-columns: 110px 140px minmax(220px, 1fr) 120px 150px 80px 120px minmax(180px, 1fr) 120px;
+  gap: 10px;
+}
+
+.asset-notes-field {
+  grid-column: auto;
+}
+
+.asset-form button {
+  align-self: end;
+  min-height: 36px;
+  white-space: nowrap;
+}
+
 .locked-field {
   min-height: 36px;
   display: flex;
@@ -632,6 +671,7 @@ nav button:hover {
 }
 
 .toolbar {
+  gap: 10px;
   justify-content: space-between;
 }
 
@@ -659,8 +699,63 @@ table {
 }
 
 .task-table {
-  min-width: 880px;
+  min-width: 1240px;
   font-size: 13px;
+  table-layout: fixed;
+}
+
+.task-table th:nth-child(1),
+.task-table td:nth-child(1) {
+  width: 64px;
+}
+
+.task-table th:nth-child(2),
+.task-table td:nth-child(2) {
+  width: 112px;
+}
+
+.task-table th:nth-child(3),
+.task-table td:nth-child(3) {
+  width: 210px;
+}
+
+.task-table th:nth-child(4),
+.task-table td:nth-child(4) {
+  width: 150px;
+}
+
+.task-table th:nth-child(5),
+.task-table td:nth-child(5),
+.task-table th:nth-child(6),
+.task-table td:nth-child(6),
+.task-table th:nth-child(7),
+.task-table td:nth-child(7) {
+  width: 128px;
+}
+
+.task-table th:nth-child(8),
+.task-table td:nth-child(8) {
+  width: 124px;
+}
+
+.task-table th:nth-child(9),
+.task-table td:nth-child(9) {
+  width: 150px;
+}
+
+.task-table th:nth-child(10),
+.task-table td:nth-child(10) {
+  width: 170px;
+}
+
+.task-table .row-actions {
+  flex-wrap: nowrap;
+}
+
+.task-table .row-actions button {
+  min-width: 54px;
+  padding: 0 9px;
+  white-space: nowrap;
 }
 
 .task-table th,
@@ -673,6 +768,13 @@ table {
 .task-table textarea,
 .task-table button {
   font-size: 13px;
+  min-height: 36px;
+}
+
+.task-table select,
+.task-table input:not([type="range"]),
+.task-table textarea {
+  width: 100%;
 }
 
 .task-table p,
@@ -682,6 +784,23 @@ table {
 
 .member-table {
   min-width: 720px;
+}
+
+.asset-table {
+  min-width: 980px;
+  font-size: 13px;
+}
+
+.asset-table th,
+.asset-table td {
+  padding: 8px;
+  vertical-align: middle;
+}
+
+.asset-table input,
+.asset-table select,
+.asset-table button {
+  font-size: 13px;
 }
 
 td input,
@@ -1349,6 +1468,7 @@ progress {
   .task-composer-wide,
   .member-form,
   .sponsor-form,
+  .asset-form,
   .bom-form,
   .budget-form,
   .budget-log-edit-grid {
@@ -1371,19 +1491,54 @@ progress {
   }
 
   nav,
-  .metrics-grid,
   .dashboard-band,
   .split,
   .kanban,
-  .team-rollup,
   .task-composer,
   .task-composer-wide,
   .member-form,
   .sponsor-form,
+  .asset-form,
   .bom-form,
   .budget-form,
   .budget-log-edit-grid {
     grid-template-columns: 1fr;
+  }
+
+  .metrics-grid,
+  .team-rollup {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .metric,
+  .team-rollup article {
+    border-radius: 7px;
+    min-width: 0;
+    padding: 10px;
+  }
+
+  .metric span,
+  .team-rollup span,
+  .team-rollup i {
+    font-size: 11px;
+    line-height: 1.2;
+  }
+
+  .metric strong,
+  .team-rollup strong {
+    font-size: 18px;
+    line-height: 1.05;
+    margin: 4px 0;
+    overflow-wrap: anywhere;
+  }
+
+  .metric p,
+  .team-rollup p {
+    font-size: 12px;
+    line-height: 1.25;
+    margin: 0;
+    overflow-wrap: anywhere;
   }
 
   h1 {
@@ -1408,6 +1563,10 @@ progress {
   }
 
   .budget-form .budget-add-button {
+    grid-column: 1 / -1;
+  }
+
+  .asset-notes-field {
     grid-column: 1 / -1;
   }
 
@@ -1632,15 +1791,15 @@ progress {
   }
 
   .metrics-grid {
-    gap: 10px;
+    gap: 8px;
   }
 
   .metric {
-    padding: 14px;
+    padding: 10px;
   }
 
   .metric strong {
-    font-size: 24px;
+    font-size: 18px;
   }
 
   .table-wrap,

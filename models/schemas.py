@@ -231,6 +231,51 @@ class SponsorRead(SponsorBase):
     id: int
 
 
+class AssetBase(BaseModel):
+    project_id: int
+    team_id: int | None = None
+    category: str = ""
+    name: str
+    asset_tag: str = ""
+    source: str = "owned"
+    provider: str = ""
+    quantity: float = 1
+    estimated_value: float = 0
+    condition: str = ""
+    location: str = ""
+    assigned_to: str = ""
+    start_date: DateType | None = None
+    end_date: DateType | None = None
+    notes: str = ""
+
+
+class AssetCreate(AssetBase):
+    pass
+
+
+class AssetUpdate(BaseModel):
+    team_id: int | None = None
+    category: str | None = None
+    name: str | None = None
+    asset_tag: str | None = None
+    source: str | None = None
+    provider: str | None = None
+    quantity: float | None = None
+    estimated_value: float | None = None
+    condition: str | None = None
+    location: str | None = None
+    assigned_to: str | None = None
+    start_date: DateType | None = None
+    end_date: DateType | None = None
+    notes: str | None = None
+
+
+class AssetRead(AssetBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
 class UserBase(BaseModel):
     team_id: int | None = None
     name: str
