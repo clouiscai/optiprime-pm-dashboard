@@ -86,6 +86,7 @@ class BOMItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True, index=True)
+    category: Mapped[str] = mapped_column(String(120), default="")
     name: Mapped[str] = mapped_column(String(220), nullable=False)
     quantity: Mapped[float] = mapped_column(Float, default=1.0)
     unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
@@ -103,6 +104,7 @@ class BOMVersion(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     bom_item_id: Mapped[int] = mapped_column(ForeignKey("bom_items.id"), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(120), default="")
     name: Mapped[str] = mapped_column(String(220), nullable=False)
     quantity: Mapped[float] = mapped_column(Float, default=1.0)
     unit_cost: Mapped[float] = mapped_column(Float, default=0.0)

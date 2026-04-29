@@ -383,7 +383,7 @@ def list_bom(project_id: int, _: Protected, team_id: int | None = None, db: Sess
     query = db.query(BOMItem).filter(BOMItem.project_id == project_id)
     if team_id:
         query = query.filter(BOMItem.team_id == team_id)
-    items = query.order_by(BOMItem.name).all()
+    items = query.order_by(BOMItem.category, BOMItem.name).all()
     changed = False
     for item in items:
         changed = normalize_bom_item_versions(db, item) or changed
@@ -412,6 +412,7 @@ async def update_bom_item(item_id: int, payload: BOMItemUpdate, _: Writable, db:
     db.add(
         BOMVersion(
             bom_item_id=item.id,
+            category=item.category,
             name=item.name,
             quantity=item.quantity,
             unit_cost=item.unit_cost,
@@ -471,6 +472,7 @@ async def rollback_bom(item_id: int, version_id: int, _: Writable, db: Session =
         raise HTTPException(404, "BOM item version not found")
     normalize_bom_item_versions(db, item)
     item.name = version.name
+    item.category = version.category
     item.quantity = version.quantity
     item.unit_cost = version.unit_cost
     item.sponsored_by = version.sponsored_by
@@ -492,6 +494,7 @@ def export_bom(project_id: int, _: Protected, team_id: int | None = None, db: Se
         {
             "id": item.id,
             "team_id": item.team_id,
+            "category": item.category,
             "name": item.name,
             "quantity": item.quantity,
             "unit_cost": item.unit_cost,

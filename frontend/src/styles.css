@@ -463,7 +463,7 @@ nav button:hover {
 .bom-form {
   align-items: end;
   display: grid;
-  grid-template-columns: minmax(78px, 0.7fr) minmax(150px, 1.2fr) 78px 112px minmax(120px, 0.9fr) 74px;
+  grid-template-columns: minmax(78px, 0.7fr) minmax(130px, 0.9fr) minmax(150px, 1.15fr) 78px 112px minmax(120px, 0.85fr) 74px;
 }
 
 .bom-form .compact-field,
@@ -504,7 +504,7 @@ nav button:hover {
 }
 
 .bom-table {
-  min-width: 1160px;
+  min-width: 1280px;
   table-layout: fixed;
 }
 
@@ -522,6 +522,10 @@ nav button:hover {
 
 .bom-table .bom-team-col {
   width: 92px;
+}
+
+.bom-table .bom-category-col {
+  width: 150px;
 }
 
 .bom-table .bom-item-col {
@@ -563,6 +567,16 @@ nav button:hover {
 .bom-table .bom-actions-col button {
   min-width: 72px;
   padding: 0 10px;
+}
+
+.bom-category-row td {
+  background: #fff4f5;
+  color: var(--op-coral-dark);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  padding: 8px 12px;
+  text-transform: uppercase;
 }
 
 .panel-block {

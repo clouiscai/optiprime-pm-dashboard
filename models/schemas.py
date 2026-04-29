@@ -121,6 +121,7 @@ class BlockerRead(BlockerBase):
 class BOMItemBase(BaseModel):
     project_id: int
     team_id: int | None = None
+    category: str = ""
     name: str
     quantity: float = 1
     unit_cost: float = 0
@@ -133,6 +134,7 @@ class BOMItemCreate(BOMItemBase):
 
 class BOMItemUpdate(BaseModel):
     team_id: int | None = None
+    category: str | None = None
     name: str | None = None
     quantity: float | None = None
     unit_cost: float | None = None
@@ -158,6 +160,7 @@ class BOMVersionRead(BaseModel):
 
     id: int
     bom_item_id: int
+    category: str = ""
     name: str
     quantity: float
     unit_cost: float

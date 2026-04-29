@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import optiPrimeLogo from "./assets/OptiPrime_logo_blackbg.jpg";
 import { apiFetch, downloadCsv, getApiBase, getWsUrl } from "./api";
 
@@ -874,16 +874,28 @@ function Gantt({ tasks, teams, rangeStart, rangeEnd, onResetRange }) {
 function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, bom, budget, canEdit, onRefresh }) {
   const defaultTeam = teamId || teams[0]?.id || null;
   const isMaster = selectedTeam === "master";
-  const emptyBomDraft = { project_id: projectId, team_id: defaultTeam, name: "", quantity: 1, unit_cost: 0, sponsored_by: "" };
+  const emptyBomDraft = { project_id: projectId, team_id: defaultTeam, category: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" };
   const emptyBudgetDraft = { project_id: projectId, team_id: defaultTeam, category: "", amount: 0, date: today, notes: "", sponsored_by: "" };
   const [bomDraft, setBomDraft] = useState(emptyBomDraft);
   const [budgetDraft, setBudgetDraft] = useState(emptyBudgetDraft);
   const [history, setHistory] = useState({});
   const [showPlan, setShowPlan] = useState(false);
   const [bomExpanded, setBomExpanded] = useState(false);
+  const bomCategories = [...new Set(bom.map((item) => item.category?.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const groupedBom = bom.reduce((groups, item) => {
+    const category = item.category?.trim() || "Uncategorized";
+    if (!groups[category]) groups[category] = [];
+    groups[category].push(item);
+    return groups;
+  }, {});
+  const groupedBomEntries = Object.entries(groupedBom).sort(([a], [b]) => {
+    if (a === "Uncategorized") return 1;
+    if (b === "Uncategorized") return -1;
+    return a.localeCompare(b);
+  });
 
   useEffect(() => {
-    setBomDraft({ project_id: projectId, team_id: defaultTeam, name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
+    setBomDraft({ project_id: projectId, team_id: defaultTeam, category: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
     setBudgetDraft({ project_id: projectId, team_id: defaultTeam, category: "", amount: 0, date: today, notes: "", sponsored_by: "" });
     setHistory({});
   }, [projectId, defaultTeam, selectedTeam]);
@@ -896,13 +908,14 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
       body: JSON.stringify({
         project_id: projectId,
         team_id: Number(bomDraft.team_id),
+        category: bomDraft.category.trim(),
         name: bomDraft.name.trim(),
         quantity: Number(bomDraft.quantity),
         unit_cost: Number(bomDraft.unit_cost),
         sponsored_by: bomDraft.sponsored_by.trim(),
       }),
     });
-    setBomDraft({ project_id: projectId, team_id: defaultTeam, name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
+    setBomDraft({ project_id: projectId, team_id: defaultTeam, category: bomDraft.category.trim(), name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
     await onRefresh();
   }
 
@@ -966,6 +979,9 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
             </div>
           </div>
           {canEdit && <form className="inline-form bom-form" onSubmit={addBom}>
+            <datalist id="bom-category-options">
+              {bomCategories.map((category) => <option value={category} key={category} />)}
+            </datalist>
             {isMaster ? (
               <label className="compact-field">
                 <span>Team</span>
@@ -980,6 +996,10 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
                 <div className="locked-field">{teamName(teams, defaultTeam)}</div>
               </label>
             )}
+            <label className="compact-field bom-category-field">
+              <span>Category</span>
+              <input list="bom-category-options" placeholder="Category" value={bomDraft.category} onChange={(event) => setBomDraft({ ...bomDraft, category: event.target.value })} />
+            </label>
             <label className="compact-field">
               <span>Item</span>
               <input placeholder="Item" value={bomDraft.name} onChange={(event) => setBomDraft({ ...bomDraft, name: event.target.value })} />
@@ -1001,11 +1021,18 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
           <div className="table-wrap bom-table-wrap">
             <table className="bom-table">
               <thead>
-                <tr>{isMaster && <th className="bom-team-col">Team</th>}<th className="bom-item-col">Item</th><th className="bom-qty-col">Qty</th><th className="bom-cost-col">Unit Cost (SGD)</th><th className="bom-total-col">Total (SGD)</th><th className="bom-sponsor-col">Sponsor</th><th className="bom-version-col">Version</th><th className="bom-actions-col"></th></tr>
+                <tr>{isMaster && <th className="bom-team-col">Team</th>}<th className="bom-category-col">Category</th><th className="bom-item-col">Item</th><th className="bom-qty-col">Qty</th><th className="bom-cost-col">Unit Cost (SGD)</th><th className="bom-total-col">Total (SGD)</th><th className="bom-sponsor-col">Sponsor</th><th className="bom-version-col">Version</th><th className="bom-actions-col"></th></tr>
               </thead>
               <tbody>
-                {bom.map((item) => (
-                  <BomRow key={item.id} item={item} token={token} teams={teams} isMaster={isMaster} canEdit={canEdit} history={history[item.id]} onLoadHistory={loadHistory} onCloseHistory={closeHistory} onRefresh={onRefresh} />
+                {groupedBomEntries.map(([category, items]) => (
+                  <Fragment key={category}>
+                    <tr className="bom-category-row">
+                      <td colSpan={isMaster ? "9" : "8"}>{category}</td>
+                    </tr>
+                    {items.map((item) => (
+                      <BomRow key={item.id} item={item} token={token} teams={teams} isMaster={isMaster} canEdit={canEdit} categories={bomCategories} history={history[item.id]} onLoadHistory={loadHistory} onCloseHistory={closeHistory} onRefresh={onRefresh} />
+                    ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -1245,11 +1272,12 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
   );
 }
 
-function BomRow({ item, token, teams, isMaster, canEdit, history, onLoadHistory, onCloseHistory, onRefresh }) {
-  const [edit, setEdit] = useState({ team_id: item.team_id, name: item.name, quantity: item.quantity, unit_cost: item.unit_cost, sponsored_by: item.sponsored_by || "" });
+function BomRow({ item, token, teams, isMaster, canEdit, categories, history, onLoadHistory, onCloseHistory, onRefresh }) {
+  const categoryOptionsId = `bom-category-options-${item.id}`;
+  const [edit, setEdit] = useState({ team_id: item.team_id, category: item.category || "", name: item.name, quantity: item.quantity, unit_cost: item.unit_cost, sponsored_by: item.sponsored_by || "" });
 
   useEffect(() => {
-    setEdit({ team_id: item.team_id, name: item.name, quantity: item.quantity, unit_cost: item.unit_cost, sponsored_by: item.sponsored_by || "" });
+    setEdit({ team_id: item.team_id, category: item.category || "", name: item.name, quantity: item.quantity, unit_cost: item.unit_cost, sponsored_by: item.sponsored_by || "" });
   }, [item]);
 
   async function save() {
@@ -1258,6 +1286,7 @@ function BomRow({ item, token, teams, isMaster, canEdit, history, onLoadHistory,
       body: JSON.stringify({
         ...edit,
         team_id: edit.team_id ? Number(edit.team_id) : null,
+        category: edit.category.trim(),
         quantity: Number(edit.quantity),
         unit_cost: Number(edit.unit_cost),
         sponsored_by: edit.sponsored_by.trim(),
@@ -1296,6 +1325,12 @@ function BomRow({ item, token, teams, isMaster, canEdit, history, onLoadHistory,
             </select>
           </td>
         )}
+        <td className="bom-category-col">
+          <datalist id={categoryOptionsId}>
+            {categories.map((category) => <option value={category} key={category} />)}
+          </datalist>
+          <input list={categoryOptionsId} placeholder="Category" value={edit.category} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, category: event.target.value })} />
+        </td>
         <td className="bom-item-col"><input value={edit.name} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, name: event.target.value })} /></td>
         <td className="bom-qty-col"><input type="number" step="1" value={edit.quantity} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, quantity: event.target.value })} /></td>
         <td className="bom-cost-col"><input type="number" step="0.01" value={edit.unit_cost} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, unit_cost: event.target.value })} /></td>
@@ -1310,7 +1345,7 @@ function BomRow({ item, token, teams, isMaster, canEdit, history, onLoadHistory,
       </tr>
       {history && (
         <tr className="history-row">
-          <td colSpan={isMaster ? "8" : "7"}>
+          <td colSpan={isMaster ? "9" : "8"}>
             <div className="history-panel">
               <header>
                 <strong>Version history</strong>
@@ -1319,7 +1354,7 @@ function BomRow({ item, token, teams, isMaster, canEdit, history, onLoadHistory,
               {history.length === 0 && <span>No previous versions.</span>}
               {history.map((version) => (
                 <div className="history-version" key={version.id}>
-                  <span>v{version.version}: {version.name} - {money(version.total_cost)}{version.sponsored_by ? ` - ${version.sponsored_by}` : ""}</span>
+                  <span>v{version.version}: {version.category ? `${version.category} - ` : ""}{version.name} - {money(version.total_cost)}{version.sponsored_by ? ` - ${version.sponsored_by}` : ""}</span>
                   <div>
                     {canEdit && <button onClick={() => rollback(version.id)}>Roll Back</button>}
                     {canEdit && <button className="danger-button" onClick={() => deleteVersion(version.id)}>Delete Version</button>}
@@ -1447,7 +1482,7 @@ function Sponsors({ projectId, selectedTeam, token, teams, sponsors, bom, budget
         team_id: item.team_id,
         name: item.name,
         value: item.total_cost,
-        notes: `${item.quantity} x ${money(item.unit_cost)}`,
+        notes: `${item.category ? `${item.category} - ` : ""}${item.quantity} x ${money(item.unit_cost)}`,
       })),
     ...(budget || [])
       .filter((log) => log.sponsored_by?.trim())
