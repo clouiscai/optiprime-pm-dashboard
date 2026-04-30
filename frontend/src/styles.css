@@ -854,6 +854,10 @@ td small {
   background: #fffafa;
 }
 
+.task-table tbody tr td:first-child {
+  box-shadow: inset 4px 0 0 var(--team-color, var(--op-coral));
+}
+
 .task-table td.wbs-child-title {
   padding-left: 72px;
   position: relative;
@@ -987,6 +991,7 @@ td input[type="range"] {
 .task-card {
   background: #ffffff;
   border: 1px solid #cbd5df;
+  border-left: 5px solid var(--team-color, var(--op-coral));
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 10px;
@@ -1066,6 +1071,25 @@ progress {
   justify-content: flex-end;
 }
 
+.toggle-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--op-line);
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.toggle-control input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--op-coral);
+}
+
 .gantt {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
@@ -1108,6 +1132,7 @@ progress {
   border-radius: 0;
   overflow: hidden;
   background: #ffffff;
+  box-shadow: inset 4px 0 0 var(--team-color, var(--op-coral));
   text-align: left;
   cursor: pointer;
   transition: box-shadow 120ms ease, transform 120ms ease, background 120ms ease;
@@ -1186,6 +1211,16 @@ progress {
   transition: box-shadow 120ms ease, background 120ms ease;
 }
 
+.gantt-track::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--team-color, var(--op-coral));
+  opacity: 0.35;
+  z-index: 1;
+}
+
 .gantt-gridline {
   position: absolute;
   top: 0;
@@ -1227,6 +1262,7 @@ progress {
   font-size: 12px;
   z-index: 3;
   transition: transform 120ms ease, box-shadow 120ms ease;
+  background: var(--team-color, var(--op-coral));
 }
 
 .modal-backdrop {
@@ -1355,11 +1391,12 @@ progress {
 }
 
 .status-todo {
-  background: #64748b;
+  background: var(--team-color, #64748b);
+  opacity: 0.72;
 }
 
 .status-in_progress {
-  background: #2563eb;
+  background: var(--team-color, #2563eb);
 }
 
 .status-blocked {
@@ -1367,7 +1404,7 @@ progress {
 }
 
 .status-done {
-  background: #2d6a4f;
+  background: var(--team-color, #2d6a4f);
 }
 
 .dependency-pin {

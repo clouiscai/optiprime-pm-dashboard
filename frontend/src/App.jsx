@@ -9,6 +9,12 @@ const statusColumns = [
   ["blocked", "Blocked"],
   ["done", "Done"],
 ];
+const teamColors = {
+  UAV: "#b8c0cc",
+  USV: "#ff3b3b",
+  UUV: "#1f2329",
+  General: "#64748b",
+};
 
 const today = new Date().toISOString().slice(0, 10);
 const dayMs = 24 * 60 * 60 * 1000;
@@ -72,6 +78,15 @@ function teamCode(teams, id) {
 
 function teamName(teams, id) {
   return id ? teams.find((team) => team.id === id)?.code || "" : "General";
+}
+
+function teamColor(teams, id) {
+  const code = teamCode(teams, id);
+  return teamColors[code] || teamColors.General;
+}
+
+function teamStyle(teams, id) {
+  return { "--team-color": teamColor(teams, id) };
 }
 
 function wbsNumber(task, tasks) {
@@ -556,9 +571,9 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
           </select>
         </label>
         <label className="compact-field">
-          <span>WBS Parent</span>
+          <span>Parent</span>
           <select value={draft.parent_task_id || ""} onChange={(event) => setDraft({ ...draft, parent_task_id: event.target.value ? Number(event.target.value) : null })}>
-            <option value="">No WBS parent</option>
+            <option value="">No parent</option>
             {parentOptions.map((task) => (
               <option value={task.id} key={task.id}>{teamCode(teams, task.team_id)} {wbsNumber(task, wbsTasks)} - {task.title}</option>
             ))}
@@ -616,7 +631,7 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
             {filtered.map((task) => {
               const isEditing = editingTaskId === task.id;
               return (
-                <tr key={task.id} className={`${task.open_blockers ? "blocked-row" : ""} ${task.is_parent ? "wbs-parent-row" : ""} ${task.parent_task_id ? "wbs-child-row" : ""}`}>
+                <tr key={task.id} style={teamStyle(teams, task.team_id)} className={`${task.open_blockers ? "blocked-row" : ""} ${task.is_parent ? "wbs-parent-row" : ""} ${task.parent_task_id ? "wbs-child-row" : ""}`}>
                   <td>
                     <span className="wbs-code">{wbsNumber(task, wbsTasks)}</span>
                     <small>{task.is_parent ? "Parent" : task.parent_task_id ? "Subtask" : "Task"}</small>
@@ -729,7 +744,7 @@ function Kanban({ tasks, teams, canEdit, onPatchTask }) {
           {tasks
             .filter((task) => task.status === status)
             .map((task) => (
-              <article className={`task-card ${task.open_blockers ? "has-blocker" : ""}`} draggable={canEdit} key={task.id} onDragStart={() => canEdit && setDraggedId(task.id)}>
+              <article className={`task-card ${task.open_blockers ? "has-blocker" : ""}`} style={teamStyle(teams, task.team_id)} draggable={canEdit} key={task.id} onDragStart={() => canEdit && setDraggedId(task.id)}>
                 <strong>{task.title}</strong>
                 <span>{teamCode(teams, task.team_id)} - {task.owner || "Unassigned"}</span>
                 <div className="card-meta">
@@ -750,7 +765,9 @@ function Gantt({ tasks, teams, rangeStart, rangeEnd, onResetRange }) {
   const pinchRef = useRef(null);
   const [dayWidth, setDayWidth] = useState(34);
   const [detailTask, setDetailTask] = useState(null);
-  const dated = sortWbs(tasks).filter((task) => task.start_date && task.due_date);
+  const [parentsOnly, setParentsOnly] = useState(false);
+  const visibleTasks = parentsOnly ? tasks.filter((task) => !task.parent_task_id) : tasks;
+  const dated = sortWbs(visibleTasks).filter((task) => task.start_date && task.due_date);
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
   const range = useMemo(() => {
     if (!dated.length) return null;
@@ -817,15 +834,19 @@ function Gantt({ tasks, teams, rangeStart, rangeEnd, onResetRange }) {
   return (
     <section className="gantt-shell">
       <div className="gantt-controls">
+        <label className="toggle-control">
+          <input type="checkbox" checked={parentsOnly} onChange={(event) => setParentsOnly(event.target.checked)} />
+          <span>Hide Subtasks</span>
+        </label>
         <button onClick={reset}>Reset</button>
       </div>
-      <div className="gantt">
+      <div className={`gantt ${parentsOnly ? "gantt-parents-only" : ""}`}>
         <div className="gantt-task-column">
           <div className="gantt-task-head">Task</div>
           {dated.map((task) => (
-            <button className={`gantt-task-label ${task.open_blockers ? "has-blocker" : ""} ${task.is_parent ? "wbs-parent-label" : ""} ${task.parent_task_id ? "wbs-child-label" : ""}`} key={task.id} onClick={() => setDetailTask(task)} type="button">
+            <button className={`gantt-task-label ${task.open_blockers ? "has-blocker" : ""} ${task.is_parent ? "wbs-parent-label" : ""} ${task.parent_task_id ? "wbs-child-label" : ""}`} style={teamStyle(teams, task.team_id)} key={task.id} onClick={() => setDetailTask(task)} type="button">
               <strong>{task.title}</strong>
-              <span>{teamCode(teams, task.team_id)} WBS {wbsNumber(task, tasks)} - {shortDate(task.start_date)} to {shortDate(task.due_date)}</span>
+              <span>{teamCode(teams, task.team_id)} {wbsNumber(task, tasks)} - {shortDate(task.start_date)} to {shortDate(task.due_date)}</span>
             </button>
           ))}
         </div>
@@ -847,7 +868,7 @@ function Gantt({ tasks, teams, rangeStart, rangeEnd, onResetRange }) {
               const durationDays = Math.max(1, Math.round((parseDay(task.due_date) - parseDay(task.start_date)) / dayMs) + 1);
               const width = Math.max(dayWidth, durationDays * dayWidth);
               return (
-                <div className={`gantt-track ${task.open_blockers ? "has-blocker" : ""}`} key={task.id}>
+                <div className={`gantt-track ${task.open_blockers ? "has-blocker" : ""}`} style={teamStyle(teams, task.team_id)} key={task.id}>
                   {ticks.map((tick) => <i className="gantt-gridline" key={tick.left} style={{ left: tick.left }} />)}
                   {(task.dependencies || []).map((dep) => {
                     const depTask = taskById.get(dep);
@@ -858,7 +879,7 @@ function Gantt({ tasks, teams, rangeStart, rangeEnd, onResetRange }) {
                       </span>
                     );
                   })}
-                  <div className={`gantt-bar status-${task.status}`} style={{ left, width }} title={`${task.title}: ${task.progress}%`}>
+                  <div className={`gantt-bar status-${task.status}`} style={{ left, width, ...teamStyle(teams, task.team_id) }} title={`${task.title}: ${task.progress}%`}>
                     {task.progress}%
                   </div>
                 </div>
@@ -872,7 +893,7 @@ function Gantt({ tasks, teams, rangeStart, rangeEnd, onResetRange }) {
           <article className="task-detail-modal" onClick={(event) => event.stopPropagation()}>
             <header>
               <div>
-                <span>{teamCode(teams, detailTask.team_id)} WBS {wbsNumber(detailTask, tasks)}</span>
+                <span>{teamCode(teams, detailTask.team_id)} {wbsNumber(detailTask, tasks)}</span>
                 <h2>{detailTask.title}</h2>
               </div>
               <button onClick={() => setDetailTask(null)}>Close</button>
