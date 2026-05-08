@@ -134,6 +134,21 @@ class BudgetLog(Base):
     team: Mapped[Team | None] = relationship(back_populates="budget_logs")
 
 
+class Invoice(Base):
+    __tablename__ = "invoices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True, index=True)
+    description: Mapped[str] = mapped_column(String(220), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(220), nullable=False)
+    stored_filename: Mapped[str] = mapped_column(String(260), nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    project: Mapped[Project] = relationship()
+    team: Mapped[Team | None] = relationship()
+
+
 class Sponsor(Base):
     __tablename__ = "sponsors"
 

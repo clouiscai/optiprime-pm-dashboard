@@ -1,13 +1,16 @@
 import csv
 import io
+from pathlib import Path
+from uuid import uuid4
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 
 from database.session import get_db
-from models.entities import Asset, Blocker, BOMItem, BOMVersion, BudgetLog, Project, Sponsor, Task, TaskAuditLog, Team, User
+from models.entities import Asset, Blocker, BOMItem, BOMVersion, BudgetLog, Invoice, Project, Sponsor, Task, TaskAuditLog, Team, User
 from models.schemas import (
     AssetCreate,
     AssetRead,
@@ -22,6 +25,7 @@ from models.schemas import (
     BudgetLogCreate,
     BudgetLogRead,
     BudgetLogUpdate,
+    InvoiceRead,
     DashboardRead,
     LoginRequest,
     LoginResponse,
@@ -50,6 +54,8 @@ from services.realtime import manager
 router = APIRouter()
 Protected = Annotated[str, Depends(require_token)]
 Writable = Annotated[str, Depends(require_write_token)]
+ROOT = Path(__file__).resolve().parents[1]
+INVOICE_DIR = ROOT / "uploads" / "invoices"
 
 
 def get_project_or_404(db: Session, project_id: int) -> Project:
@@ -506,14 +512,14 @@ async def rollback_bom(item_id: int, version_id: int, _: Writable, db: Session =
 
 @router.get("/projects/{project_id}/bom/export.csv")
 def export_bom(project_id: int, _: Protected, team_id: int | None = None, db: Session = Depends(get_db)):
-    query = db.query(BOMItem).filter(BOMItem.project_id == project_id)
+    query = db.query(BOMItem).options(joinedload(BOMItem.team)).filter(BOMItem.project_id == project_id)
     if team_id:
         query = query.filter(BOMItem.team_id == team_id)
     items = query.order_by(BOMItem.id).all()
     rows = [
         {
             "id": item.id,
-            "team_id": item.team_id,
+            "team": item.team.code if item.team else "General",
             "category": item.category,
             "name": item.name,
             "quantity": item.quantity,
@@ -570,6 +576,84 @@ async def delete_budget_log(log_id: int, _: Writable, db: Session = Depends(get_
     db.delete(log)
     db.commit()
     await manager.broadcast("budget.updated", {"project_id": project_id})
+    return Response(status_code=204)
+
+
+@router.get("/projects/{project_id}/invoices", response_model=list[InvoiceRead])
+def list_invoices(project_id: int, _: Protected, team_id: int | None = None, db: Session = Depends(get_db)):
+    get_project_or_404(db, project_id)
+    query = db.query(Invoice).filter(Invoice.project_id == project_id)
+    if team_id:
+        query = query.filter(Invoice.team_id == team_id)
+    return query.order_by(Invoice.uploaded_at.desc(), Invoice.id.desc()).all()
+
+
+@router.post("/invoices", response_model=InvoiceRead)
+async def upload_invoice(
+    _: Writable,
+    project_id: int = Form(...),
+    team_id: int | None = Form(default=None),
+    description: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    get_project_or_404(db, project_id)
+    original_name = Path(file.filename or "invoice.pdf").name
+    if file.content_type != "application/pdf" or Path(original_name).suffix.lower() != ".pdf":
+        raise HTTPException(400, "Only PDF invoices are accepted")
+
+    content = await file.read()
+    if not content.startswith(b"%PDF"):
+        raise HTTPException(400, "Only valid PDF invoices are accepted")
+
+    project_dir = INVOICE_DIR / str(project_id)
+    project_dir.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid4().hex}.pdf"
+    stored_path = project_dir / stored_name
+    stored_path.write_bytes(content)
+
+    invoice = Invoice(
+        project_id=project_id,
+        team_id=team_id,
+        description=description.strip(),
+        original_filename=original_name,
+        stored_filename=str(Path(str(project_id)) / stored_name),
+        uploaded_at=datetime.utcnow(),
+    )
+    db.add(invoice)
+    db.commit()
+    db.refresh(invoice)
+    await manager.broadcast("invoice.updated", {"project_id": project_id, "invoice_id": invoice.id})
+    return invoice
+
+
+@router.get("/invoices/{invoice_id}/file")
+def view_invoice(invoice_id: int, _: Protected, db: Session = Depends(get_db)):
+    invoice = db.get(Invoice, invoice_id)
+    if not invoice:
+        raise HTTPException(404, "Invoice not found")
+    path = (INVOICE_DIR / invoice.stored_filename).resolve()
+    if not str(path).startswith(str(INVOICE_DIR.resolve())) or not path.exists():
+        raise HTTPException(404, "Invoice file not found")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{invoice.original_filename.replace(chr(34), "")}"'},
+    )
+
+
+@router.delete("/invoices/{invoice_id}", status_code=204)
+async def delete_invoice(invoice_id: int, _: Writable, db: Session = Depends(get_db)):
+    invoice = db.get(Invoice, invoice_id)
+    if not invoice:
+        raise HTTPException(404, "Invoice not found")
+    project_id = invoice.project_id
+    path = (INVOICE_DIR / invoice.stored_filename).resolve()
+    db.delete(invoice)
+    db.commit()
+    if str(path).startswith(str(INVOICE_DIR.resolve())) and path.exists():
+        path.unlink()
+    await manager.broadcast("invoice.updated", {"project_id": project_id, "invoice_id": invoice_id})
     return Response(status_code=204)
 
 

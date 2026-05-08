@@ -42,17 +42,6 @@ def ensure_teams(db, project):
 
 def assign_existing_unscoped_records(db, project, teams):
     team_cycle = [teams["USV"], teams["UAV"], teams["UUV"]]
-    for index, task in enumerate(db.query(Task).filter(Task.project_id == project.id, Task.team_id.is_(None)).order_by(Task.id).all()):
-        title = task.title.lower()
-        if any(word in title for word in ["hull", "motor", "waterproof", "field"]):
-            task.team_id = teams["USV"].id
-        elif any(word in title for word in ["perception", "camera", "flight", "aerial"]):
-            task.team_id = teams["UAV"].id
-        elif any(word in title for word in ["underwater", "pressure", "depth", "sonar"]):
-            task.team_id = teams["UUV"].id
-        else:
-            task.team_id = team_cycle[index % len(team_cycle)].id
-
     for index, item in enumerate(db.query(BOMItem).filter(BOMItem.project_id == project.id, BOMItem.team_id.is_(None)).order_by(BOMItem.id).all()):
         name = item.name.lower()
         if any(word in name for word in ["hull", "marine", "motor"]):

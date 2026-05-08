@@ -451,6 +451,21 @@ nav button:hover {
   white-space: nowrap;
 }
 
+.tab-switch {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.tab-switch button {
+  min-height: 34px;
+}
+
+.tab-switch button.active {
+  background: var(--op-coral);
+  border-color: var(--op-coral);
+  color: #ffffff;
+}
+
 .task-composer {
   align-items: end;
   column-gap: 10px;
@@ -515,6 +530,41 @@ nav button:hover {
 
 .budget-form .budget-add-button {
   grid-column: 1 / -1;
+}
+
+.invoice-form {
+  align-items: end;
+  display: grid;
+  grid-template-columns: 92px minmax(180px, 1fr) minmax(160px, 0.9fr) 130px;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.invoice-form button {
+  min-height: 36px;
+  white-space: nowrap;
+}
+
+.button-link {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--op-line);
+  border-radius: 6px;
+  color: var(--op-ink);
+  display: inline-flex;
+  min-height: 36px;
+  padding: 0 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.button-link:hover {
+  border-color: var(--op-coral);
+}
+
+.empty-note {
+  color: var(--op-muted);
+  margin: 0;
 }
 
 .budget-split.bom-expanded {
@@ -1507,6 +1557,7 @@ progress {
   .sponsor-form,
   .asset-form,
   .bom-form,
+  .invoice-form,
   .budget-form,
   .budget-log-edit-grid {
     grid-template-columns: 1fr 1fr;
@@ -1537,6 +1588,7 @@ progress {
   .sponsor-form,
   .asset-form,
   .bom-form,
+  .invoice-form,
   .budget-form,
   .budget-log-edit-grid {
     grid-template-columns: 1fr;

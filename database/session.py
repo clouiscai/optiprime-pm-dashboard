@@ -55,7 +55,23 @@ def run_sqlite_migrations():
         "budget_logs.sponsored_by": "ALTER TABLE budget_logs ADD COLUMN sponsored_by VARCHAR(160) DEFAULT '' NOT NULL",
         "users.team_id": "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
     }
+    create_statements = {
+        "invoices": """
+            CREATE TABLE invoices (
+                id INTEGER NOT NULL PRIMARY KEY,
+                project_id INTEGER NOT NULL REFERENCES projects(id),
+                team_id INTEGER REFERENCES teams(id),
+                description VARCHAR(220) NOT NULL,
+                original_filename VARCHAR(220) NOT NULL,
+                stored_filename VARCHAR(260) NOT NULL,
+                uploaded_at DATETIME NOT NULL
+            )
+        """,
+    }
     with engine.begin() as connection:
+        for table, statement in create_statements.items():
+            if table not in existing_tables:
+                connection.execute(text(statement))
         for table_key, statement in migrations.items():
             table = table_key.split(".")[0]
             if table not in existing_tables:

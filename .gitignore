@@ -22,3 +22,4 @@ ngrok.exe
 *.key
 *.crt
 secrets/
+uploads/

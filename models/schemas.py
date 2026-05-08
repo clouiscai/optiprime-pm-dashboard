@@ -204,6 +204,17 @@ class BudgetLogRead(BudgetLogBase):
     id: int
 
 
+class InvoiceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    team_id: int | None = None
+    description: str
+    original_filename: str
+    uploaded_at: datetime
+
+
 class SponsorBase(BaseModel):
     project_id: int
     team_id: int | None = None

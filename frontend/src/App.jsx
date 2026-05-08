@@ -139,7 +139,7 @@ export default function App() {
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState(null);
   const [selectedTeam, setSelectedTeam] = useState("master");
-  const [data, setData] = useState({ dashboard: null, tasks: [], blockers: [], bom: [], budget: [], sponsors: [], assets: [], users: [], teams: [] });
+  const [data, setData] = useState({ dashboard: null, tasks: [], blockers: [], bom: [], budget: [], invoices: [], sponsors: [], assets: [], users: [], teams: [] });
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const [timelineStart, setTimelineStart] = useState("");
@@ -160,13 +160,14 @@ export default function App() {
     setBusy(true);
     try {
       const query = teamQuery(selectedTeam);
-      const [teams, dashboard, tasks, blockers, bom, budget, sponsors, assets, users] = await Promise.all([
+      const [teams, dashboard, tasks, blockers, bom, budget, invoices, sponsors, assets, users] = await Promise.all([
         apiFetch(`/projects/${projectId}/teams`, token),
         apiFetch(`/projects/${projectId}/dashboard${query}`, token),
         apiFetch(`/projects/${projectId}/tasks${query}`, token),
         apiFetch(`/projects/${projectId}/blockers${query}`, token),
         apiFetch(`/projects/${projectId}/bom${query}`, token),
         apiFetch(`/projects/${projectId}/budget${query}`, token),
+        apiFetch(`/projects/${projectId}/invoices${query}`, token),
         apiFetch(`/projects/${projectId}/sponsors`, token),
         apiFetch(`/projects/${projectId}/assets${query}`, token),
         apiFetch("/users", token),
@@ -178,6 +179,7 @@ export default function App() {
         blockers: Array.isArray(blockers) ? blockers : [],
         bom: Array.isArray(bom) ? bom : [],
         budget: Array.isArray(budget) ? budget : [],
+        invoices: Array.isArray(invoices) ? invoices : [],
         sponsors: Array.isArray(sponsors) ? sponsors : [],
         assets: Array.isArray(assets) ? assets : [],
         users: Array.isArray(users) ? users : [],
@@ -373,6 +375,7 @@ export default function App() {
             dashboard={data.dashboard}
             bom={data.bom}
             budget={data.budget}
+            invoices={data.invoices}
             canEdit={canEdit}
             onRefresh={refresh}
           />
@@ -914,7 +917,7 @@ function Gantt({ tasks, teams, rangeStart, rangeEnd, onResetRange }) {
   );
 }
 
-function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, bom, budget, canEdit, onRefresh }) {
+function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, bom, budget, invoices, canEdit, onRefresh }) {
   const defaultTeam = teamId || teams[0]?.id || null;
   const isMaster = selectedTeam === "master";
   const emptyBomDraft = { project_id: projectId, team_id: defaultTeam, category: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" };
@@ -924,6 +927,8 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
   const [history, setHistory] = useState({});
   const [showPlan, setShowPlan] = useState(false);
   const [bomExpanded, setBomExpanded] = useState(false);
+  const [budgetTab, setBudgetTab] = useState("logs");
+  const [invoiceDraft, setInvoiceDraft] = useState({ team_id: defaultTeam, description: "", file: null });
   const bomCategories = [...new Set(bom.map((item) => item.category?.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const groupedBom = bom.reduce((groups, item) => {
     const category = item.category?.trim() || "Uncategorized";
@@ -940,6 +945,7 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
   useEffect(() => {
     setBomDraft({ project_id: projectId, team_id: defaultTeam, category: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
     setBudgetDraft({ project_id: projectId, team_id: defaultTeam, category: "", amount: 0, date: today, notes: "", sponsored_by: "" });
+    setInvoiceDraft({ team_id: defaultTeam, description: "", file: null });
     setHistory({});
   }, [projectId, defaultTeam, selectedTeam]);
 
@@ -992,6 +998,60 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
     await onRefresh();
   }
 
+  async function uploadInvoice(event) {
+    event.preventDefault();
+    if (!invoiceDraft.description.trim() || !invoiceDraft.file || !invoiceDraft.team_id) return;
+    if (invoiceDraft.file.type !== "application/pdf" || !invoiceDraft.file.name.toLowerCase().endsWith(".pdf")) {
+      window.alert("Only PDF invoices are accepted.");
+      return;
+    }
+    const form = new FormData();
+    form.append("project_id", String(projectId));
+    form.append("team_id", String(invoiceDraft.team_id));
+    form.append("description", invoiceDraft.description.trim());
+    form.append("file", invoiceDraft.file);
+    try {
+      const response = await fetch(`${getApiBase()}/invoices`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      if (!response.ok) throw new Error(await response.text() || "Invoice upload failed");
+      setInvoiceDraft({ team_id: defaultTeam, description: "", file: null });
+      event.target.reset();
+      await onRefresh();
+    } catch (error) {
+      window.alert(error.message || "Invoice upload failed");
+    }
+  }
+
+  async function viewInvoice(invoice) {
+    const viewer = window.open("", "_blank");
+    const response = await fetch(`${getApiBase()}/invoices/${invoice.id}/file`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      viewer?.close();
+      window.alert("Invoice could not be opened.");
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    if (viewer) {
+      viewer.opener = null;
+      viewer.location = url;
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  async function deleteInvoice(invoice) {
+    if (!window.confirm(`Delete invoice "${invoice.description}"?`)) return;
+    await apiFetch(`/invoices/${invoice.id}`, token, { method: "DELETE" });
+    await onRefresh();
+  }
+
   async function loadHistory(itemId) {
     const versions = await apiFetch(`/bom/${itemId}/versions`, token);
     setHistory({ ...history, [itemId]: versions });
@@ -1017,11 +1077,11 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
           <div className="section-head">
             <h2>BOM</h2>
             <div className="section-actions">
-              <button className="pc-only" type="button" onClick={() => setBomExpanded(!bomExpanded)}>{bomExpanded ? "Collapse" : "Expand"}</button>
+              <button type="button" onClick={() => setBomExpanded(!bomExpanded)}>{bomExpanded ? "Collapse" : "Expand and edit"}</button>
               <button onClick={() => downloadCsv(`/projects/${projectId}/bom/export.csv${teamQuery(selectedTeam)}`, token, "robotx-bom.csv")}>Export CSV</button>
             </div>
           </div>
-          {canEdit && <form className="inline-form bom-form" onSubmit={addBom}>
+          {canEdit && bomExpanded && <form className="inline-form bom-form" onSubmit={addBom}>
             <datalist id="bom-category-options">
               {bomCategories.map((category) => <option value={category} key={category} />)}
             </datalist>
@@ -1064,16 +1124,16 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
           <div className="table-wrap bom-table-wrap">
             <table className="bom-table">
               <thead>
-                <tr>{isMaster && <th className="bom-team-col">Team</th>}<th className="bom-category-col">Category</th><th className="bom-item-col">Item</th><th className="bom-qty-col">Qty</th><th className="bom-cost-col">Unit Cost (SGD)</th><th className="bom-total-col">Total (SGD)</th><th className="bom-sponsor-col">Sponsor</th><th className="bom-version-col">Version</th><th className="bom-actions-col"></th></tr>
+                <tr>{isMaster && <th className="bom-team-col">Team</th>}<th className="bom-category-col">Category</th><th className="bom-item-col">Item</th><th className="bom-qty-col">Qty</th><th className="bom-cost-col">Unit Cost (SGD)</th><th className="bom-total-col">Total (SGD)</th><th className="bom-sponsor-col">Sponsor</th>{bomExpanded && <th className="bom-version-col">Version</th>}{bomExpanded && <th className="bom-actions-col"></th>}</tr>
               </thead>
               <tbody>
                 {groupedBomEntries.map(([category, items]) => (
                   <Fragment key={category}>
                     <tr className="bom-category-row">
-                      <td colSpan={isMaster ? "9" : "8"}>{category}</td>
+                      <td colSpan={isMaster ? (bomExpanded ? "9" : "7") : (bomExpanded ? "8" : "6")}>{category}</td>
                     </tr>
                     {items.map((item) => (
-                      <BomRow key={item.id} item={item} token={token} teams={teams} isMaster={isMaster} canEdit={canEdit} categories={bomCategories} history={history[item.id]} onLoadHistory={loadHistory} onCloseHistory={closeHistory} onRefresh={onRefresh} />
+                      <BomRow key={item.id} item={item} token={token} teams={teams} isMaster={isMaster} canEdit={canEdit && bomExpanded} expanded={bomExpanded} categories={bomCategories} history={history[item.id]} onLoadHistory={loadHistory} onCloseHistory={closeHistory} onRefresh={onRefresh} />
                     ))}
                   </Fragment>
                 ))}
@@ -1083,49 +1143,104 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
         </div>
 
         <div>
-          <h2>Budget Logs</h2>
-          {canEdit && <form className="inline-form budget-form" onSubmit={addBudget}>
-            {isMaster ? (
-              <label className="compact-field">
-                <span>Team</span>
-                <select value={budgetDraft.team_id || ""} onChange={(event) => setBudgetDraft({ ...budgetDraft, team_id: Number(event.target.value) })}>
-                  <option value="">Team</option>
-                  {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
-                </select>
-              </label>
-            ) : (
-              <label className="compact-field">
-                <span>Team</span>
-                <div className="locked-field">{teamName(teams, defaultTeam)}</div>
-              </label>
-            )}
-            <label className="compact-field budget-category-field">
-              <span>Category</span>
-              <input placeholder="Category" value={budgetDraft.category} onChange={(event) => setBudgetDraft({ ...budgetDraft, category: event.target.value })} />
-            </label>
-            <label className="compact-field">
-              <span>Amount</span>
-              <input type="number" step="0.01" value={budgetDraft.amount} onChange={(event) => setBudgetDraft({ ...budgetDraft, amount: event.target.value })} />
-            </label>
-            <label className="compact-field">
-              <span>Date</span>
-              <input type="date" value={budgetDraft.date} onChange={(event) => setBudgetDraft({ ...budgetDraft, date: event.target.value })} />
-            </label>
-            <label className="compact-field budget-notes-field">
-              <span>Notes</span>
-              <input placeholder="Notes" value={budgetDraft.notes} onChange={(event) => setBudgetDraft({ ...budgetDraft, notes: event.target.value })} />
-            </label>
-            <label className="compact-field budget-sponsor-field">
-              <span>Sponsor</span>
-              <input placeholder="Optional" value={budgetDraft.sponsored_by} onChange={(event) => setBudgetDraft({ ...budgetDraft, sponsored_by: event.target.value })} />
-            </label>
-            <button className="budget-add-button">Add</button>
-          </form>}
-          <div className="log-list">
-            {budget.map((log) => (
-              <BudgetLogCard key={log.id} log={log} teams={teams} isMaster={isMaster} canEdit={canEdit} onPatch={patchBudget} onDelete={deleteBudget} />
-            ))}
+          <div className="section-head">
+            <h2>Budget Logs</h2>
+            <div className="tab-switch">
+              <button type="button" className={budgetTab === "logs" ? "active" : ""} onClick={() => setBudgetTab("logs")}>Logs</button>
+              <button type="button" className={budgetTab === "invoices" ? "active" : ""} onClick={() => setBudgetTab("invoices")}>Invoices</button>
+            </div>
           </div>
+          {budgetTab === "logs" ? (
+            <>
+              {canEdit && <form className="inline-form budget-form" onSubmit={addBudget}>
+                {isMaster ? (
+                  <label className="compact-field">
+                    <span>Team</span>
+                    <select value={budgetDraft.team_id || ""} onChange={(event) => setBudgetDraft({ ...budgetDraft, team_id: Number(event.target.value) })}>
+                      <option value="">Team</option>
+                      {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
+                    </select>
+                  </label>
+                ) : (
+                  <label className="compact-field">
+                    <span>Team</span>
+                    <div className="locked-field">{teamName(teams, defaultTeam)}</div>
+                  </label>
+                )}
+                <label className="compact-field budget-category-field">
+                  <span>Category</span>
+                  <input placeholder="Category" value={budgetDraft.category} onChange={(event) => setBudgetDraft({ ...budgetDraft, category: event.target.value })} />
+                </label>
+                <label className="compact-field">
+                  <span>Amount</span>
+                  <input type="number" step="0.01" value={budgetDraft.amount} onChange={(event) => setBudgetDraft({ ...budgetDraft, amount: event.target.value })} />
+                </label>
+                <label className="compact-field">
+                  <span>Date</span>
+                  <input type="date" value={budgetDraft.date} onChange={(event) => setBudgetDraft({ ...budgetDraft, date: event.target.value })} />
+                </label>
+                <label className="compact-field budget-notes-field">
+                  <span>Notes</span>
+                  <input placeholder="Notes" value={budgetDraft.notes} onChange={(event) => setBudgetDraft({ ...budgetDraft, notes: event.target.value })} />
+                </label>
+                <label className="compact-field budget-sponsor-field">
+                  <span>Sponsor</span>
+                  <input placeholder="Optional" value={budgetDraft.sponsored_by} onChange={(event) => setBudgetDraft({ ...budgetDraft, sponsored_by: event.target.value })} />
+                </label>
+                <button className="budget-add-button">Add</button>
+              </form>}
+              <div className="log-list">
+                {budget.map((log) => (
+                  <BudgetLogCard key={log.id} log={log} teams={teams} isMaster={isMaster} canEdit={canEdit} onPatch={patchBudget} onDelete={deleteBudget} />
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="invoice-panel">
+              {canEdit && (
+                <form className="invoice-form" onSubmit={uploadInvoice}>
+                  {isMaster ? (
+                    <label className="compact-field">
+                      <span>Team</span>
+                      <select value={invoiceDraft.team_id || ""} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, team_id: Number(event.target.value) })}>
+                        <option value="">Team</option>
+                        {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
+                      </select>
+                    </label>
+                  ) : (
+                    <label className="compact-field">
+                      <span>Team</span>
+                      <div className="locked-field">{teamName(teams, defaultTeam)}</div>
+                    </label>
+                  )}
+                  <label className="compact-field invoice-description-field">
+                    <span>Description</span>
+                    <input placeholder="Invoice description" value={invoiceDraft.description} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, description: event.target.value })} />
+                  </label>
+                  <label className="compact-field">
+                    <span>PDF Invoice</span>
+                    <input type="file" accept="application/pdf,.pdf" onChange={(event) => setInvoiceDraft({ ...invoiceDraft, file: event.target.files?.[0] || null })} />
+                  </label>
+                  <button>Upload Invoice</button>
+                </form>
+              )}
+              <div className="log-list">
+                {invoices.map((invoice) => (
+                  <article className="budget-log-card" key={invoice.id}>
+                    <div>
+                      <strong>{teamCode(teams, invoice.team_id)} - {invoice.description}</strong>
+                      <span>{invoice.original_filename} - {shortDate(invoice.uploaded_at?.slice(0, 10))}</span>
+                    </div>
+                    <div className="row-actions">
+                      <button type="button" onClick={() => viewInvoice(invoice)}>View PDF</button>
+                      {canEdit && <button className="danger-button" onClick={() => deleteInvoice(invoice)}>Delete</button>}
+                    </div>
+                  </article>
+                ))}
+                {invoices.length === 0 && <p className="empty-note">No invoices uploaded yet.</p>}
+              </div>
+            </div>
+          )}
         </div>
       </div>
       {showPlan && (
@@ -1315,7 +1430,7 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
   );
 }
 
-function BomRow({ item, token, teams, isMaster, canEdit, categories, history, onLoadHistory, onCloseHistory, onRefresh }) {
+function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, history, onLoadHistory, onCloseHistory, onRefresh }) {
   const categoryOptionsId = `bom-category-options-${item.id}`;
   const [edit, setEdit] = useState({ team_id: item.team_id, category: item.category || "", name: item.name, quantity: item.quantity, unit_cost: item.unit_cost, sponsored_by: item.sponsored_by || "" });
 
@@ -1363,30 +1478,38 @@ function BomRow({ item, token, teams, isMaster, canEdit, categories, history, on
       <tr>
         {isMaster && (
           <td>
-            <select value={edit.team_id || ""} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, team_id: Number(event.target.value) })}>
-              {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
-            </select>
+            {expanded ? (
+              <select value={edit.team_id || ""} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, team_id: Number(event.target.value) })}>
+                {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
+              </select>
+            ) : teamCode(teams, item.team_id)}
           </td>
         )}
         <td className="bom-category-col">
-          <datalist id={categoryOptionsId}>
-            {categories.map((category) => <option value={category} key={category} />)}
-          </datalist>
-          <input list={categoryOptionsId} placeholder="Category" value={edit.category} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, category: event.target.value })} />
+          {expanded ? (
+            <>
+              <datalist id={categoryOptionsId}>
+                {categories.map((category) => <option value={category} key={category} />)}
+              </datalist>
+              <input list={categoryOptionsId} placeholder="Category" value={edit.category} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, category: event.target.value })} />
+            </>
+          ) : item.category || "Uncategorized"}
         </td>
-        <td className="bom-item-col"><input value={edit.name} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, name: event.target.value })} /></td>
-        <td className="bom-qty-col"><input type="number" step="1" value={edit.quantity} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, quantity: event.target.value })} /></td>
-        <td className="bom-cost-col"><input type="number" step="0.01" value={edit.unit_cost} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, unit_cost: event.target.value })} /></td>
+        <td className="bom-item-col">{expanded ? <input value={edit.name} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, name: event.target.value })} /> : item.name}</td>
+        <td className="bom-qty-col">{expanded ? <input type="number" step="1" value={edit.quantity} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, quantity: event.target.value })} /> : item.quantity}</td>
+        <td className="bom-cost-col">{expanded ? <input type="number" step="0.01" value={edit.unit_cost} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, unit_cost: event.target.value })} /> : money(item.unit_cost)}</td>
         <td className="bom-total-col">{money(item.total_cost)}</td>
-        <td className="bom-sponsor-col"><input placeholder="Sponsor" value={edit.sponsored_by} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, sponsored_by: event.target.value })} /></td>
-        <td className="bom-version-col">v{item.version}</td>
-        <td className="row-actions bom-actions-col">
-          {canEdit && <button onClick={save}>Save</button>}
-          <button onClick={() => onLoadHistory(item.id)}>{history ? "Refresh" : "History"}</button>
-          {canEdit && <button className="danger-button" onClick={removeItem}>Delete</button>}
-        </td>
+        <td className="bom-sponsor-col">{expanded ? <input placeholder="Sponsor" value={edit.sponsored_by} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, sponsored_by: event.target.value })} /> : item.sponsored_by || "-"}</td>
+        {expanded && <td className="bom-version-col">v{item.version}</td>}
+        {expanded && (
+          <td className="row-actions bom-actions-col">
+            {canEdit && <button onClick={save}>Save</button>}
+            <button onClick={() => onLoadHistory(item.id)}>{history ? "Refresh" : "History"}</button>
+            {canEdit && <button className="danger-button" onClick={removeItem}>Delete</button>}
+          </td>
+        )}
       </tr>
-      {history && (
+      {expanded && history && (
         <tr className="history-row">
           <td colSpan={isMaster ? "9" : "8"}>
             <div className="history-panel">
