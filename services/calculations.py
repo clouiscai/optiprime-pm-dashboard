@@ -1,5 +1,6 @@
 from datetime import date
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models.entities import Blocker, BOMItem, BudgetLog, Project, Sponsor, Task, Team
@@ -36,10 +37,16 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
     sponsor_query = db.query(Sponsor).filter(Sponsor.project_id == project.id)
     team = db.get(Team, team_id) if team_id else None
 
+    teams = db.query(Team).filter(Team.project_id == project.id).order_by(Team.code).all()
+    team_count = max(1, len(teams))
+    shared_bom_items = db.query(BOMItem).filter(BOMItem.project_id == project.id, BOMItem.team_id.is_(None)).all()
+    shared_bom_total = round(sum(item.quantity * item.unit_cost for item in shared_bom_items if not item.sponsored_by), 2)
+    shared_bom_per_team = round(shared_bom_total / team_count, 2) if teams else 0
+
     if team_id:
         task_query = task_query.filter(Task.team_id == team_id)
         blocker_query = blocker_query.filter(Task.team_id == team_id)
-        bom_query = bom_query.filter(BOMItem.team_id == team_id)
+        bom_query = bom_query.filter(or_(BOMItem.team_id == team_id, BOMItem.team_id.is_(None)))
         log_query = log_query.filter(BudgetLog.team_id == team_id)
         sponsor_query = sponsor_query.filter(Sponsor.team_id == team_id)
 
@@ -58,6 +65,9 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
     overdue_tasks = len([t for t in progress_tasks if t.due_date and t.due_date < date.today() and t.status != "done"])
     completion = round((sum(t.progress for t in progress_tasks) / len(progress_tasks)), 1) if progress_tasks else 0
     bom_total = round(sum(item.quantity * item.unit_cost for item in bom_items if not item.sponsored_by), 2)
+    if team_id:
+        own_bom_total = round(sum(item.quantity * item.unit_cost for item in bom_items if item.team_id == team_id and not item.sponsored_by), 2)
+        bom_total = round(own_bom_total + shared_bom_per_team, 2)
     budget_log_total = round(sum(log.amount for log in logs if not log.sponsored_by), 2)
     sponsor_total = round(sum(sponsor.amount for sponsor in sponsors), 2)
     actual_spend = round(bom_total + budget_log_total, 2)
@@ -69,9 +79,10 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
             status_counts[task.status] = status_counts.get(task.status, 0) + 1
             priority_counts[task.priority] = priority_counts.get(task.priority, 0) + 1
     team_summaries = []
-    for summary_team in db.query(Team).filter(Team.project_id == project.id).order_by(Team.code).all():
+    for summary_team in teams:
         team_tasks = [task for task in db.query(Task).filter(Task.project_id == project.id, Task.team_id == summary_team.id).all()]
         team_bom_total = sum(item.quantity * item.unit_cost for item in db.query(BOMItem).filter(BOMItem.project_id == project.id, BOMItem.team_id == summary_team.id).all() if not item.sponsored_by)
+        team_bom_total += shared_bom_per_team
         team_log_total = sum(log.amount for log in db.query(BudgetLog).filter(BudgetLog.project_id == project.id, BudgetLog.team_id == summary_team.id).all() if not log.sponsored_by)
         team_sponsor_total = sum(sponsor.amount for sponsor in db.query(Sponsor).filter(Sponsor.project_id == project.id, Sponsor.team_id == summary_team.id).all())
         team_parent_ids = {task.parent_task_id for task in team_tasks if task.parent_task_id}

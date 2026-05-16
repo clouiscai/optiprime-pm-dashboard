@@ -7,6 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from database.session import get_db
@@ -408,7 +409,7 @@ def list_bom(project_id: int, _: Protected, team_id: int | None = None, db: Sess
     get_project_or_404(db, project_id)
     query = db.query(BOMItem).filter(BOMItem.project_id == project_id)
     if team_id:
-        query = query.filter(BOMItem.team_id == team_id)
+        query = query.filter(or_(BOMItem.team_id == team_id, BOMItem.team_id.is_(None)))
     items = query.order_by(BOMItem.category, BOMItem.name).all()
     changed = False
     for item in items:
@@ -514,7 +515,7 @@ async def rollback_bom(item_id: int, version_id: int, _: Writable, db: Session =
 def export_bom(project_id: int, _: Protected, team_id: int | None = None, db: Session = Depends(get_db)):
     query = db.query(BOMItem).options(joinedload(BOMItem.team)).filter(BOMItem.project_id == project_id)
     if team_id:
-        query = query.filter(BOMItem.team_id == team_id)
+        query = query.filter(or_(BOMItem.team_id == team_id, BOMItem.team_id.is_(None)))
     items = query.order_by(BOMItem.id).all()
     rows = [
         {

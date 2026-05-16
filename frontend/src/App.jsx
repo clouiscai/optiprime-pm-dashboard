@@ -918,9 +918,10 @@ function Gantt({ tasks, teams, rangeStart, rangeEnd, onResetRange }) {
 }
 
 function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, bom, budget, invoices, canEdit, onRefresh }) {
-  const defaultTeam = teamId || teams[0]?.id || null;
   const isMaster = selectedTeam === "master";
-  const emptyBomDraft = { project_id: projectId, team_id: defaultTeam, category: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" };
+  const defaultTeam = teamId || teams[0]?.id || null;
+  const defaultBomTeam = isMaster ? null : defaultTeam;
+  const emptyBomDraft = { project_id: projectId, team_id: defaultBomTeam, category: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" };
   const emptyBudgetDraft = { project_id: projectId, team_id: defaultTeam, category: "", amount: 0, date: today, notes: "", sponsored_by: "" };
   const [bomDraft, setBomDraft] = useState(emptyBomDraft);
   const [budgetDraft, setBudgetDraft] = useState(emptyBudgetDraft);
@@ -943,20 +944,20 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
   });
 
   useEffect(() => {
-    setBomDraft({ project_id: projectId, team_id: defaultTeam, category: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
+    setBomDraft({ project_id: projectId, team_id: defaultBomTeam, category: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
     setBudgetDraft({ project_id: projectId, team_id: defaultTeam, category: "", amount: 0, date: today, notes: "", sponsored_by: "" });
     setInvoiceDraft({ team_id: defaultTeam, description: "", file: null });
     setHistory({});
-  }, [projectId, defaultTeam, selectedTeam]);
+  }, [projectId, defaultTeam, defaultBomTeam, selectedTeam]);
 
   async function addBom(event) {
     event.preventDefault();
-    if (!bomDraft.name.trim() || !bomDraft.team_id) return;
+    if (!bomDraft.name.trim()) return;
     await apiFetch("/bom", token, {
       method: "POST",
       body: JSON.stringify({
         project_id: projectId,
-        team_id: Number(bomDraft.team_id),
+        team_id: bomDraft.team_id ? Number(bomDraft.team_id) : null,
         category: bomDraft.category.trim(),
         name: bomDraft.name.trim(),
         quantity: Number(bomDraft.quantity),
@@ -964,7 +965,7 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
         sponsored_by: bomDraft.sponsored_by.trim(),
       }),
     });
-    setBomDraft({ project_id: projectId, team_id: defaultTeam, category: bomDraft.category.trim(), name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
+    setBomDraft({ project_id: projectId, team_id: defaultBomTeam, category: bomDraft.category.trim(), name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
     await onRefresh();
   }
 
@@ -1088,8 +1089,8 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
             {isMaster ? (
               <label className="compact-field">
                 <span>Team</span>
-                <select value={bomDraft.team_id || ""} onChange={(event) => setBomDraft({ ...bomDraft, team_id: Number(event.target.value) })}>
-                  <option value="">Team</option>
+                <select value={bomDraft.team_id || ""} onChange={(event) => setBomDraft({ ...bomDraft, team_id: event.target.value ? Number(event.target.value) : null })}>
+                  <option value="">General</option>
                   {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
                 </select>
               </label>
@@ -1479,7 +1480,8 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
         {isMaster && (
           <td>
             {expanded ? (
-              <select value={edit.team_id || ""} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, team_id: Number(event.target.value) })}>
+              <select value={edit.team_id || ""} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, team_id: event.target.value ? Number(event.target.value) : null })}>
+                <option value="">General</option>
                 {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
               </select>
             ) : teamCode(teams, item.team_id)}
