@@ -14,6 +14,7 @@ frontend/dist/
 .env
 .env.*
 !.env.example
+!frontend/.env.example
 .backend-port
 *.log
 ngrok.yml
@@ -23,3 +24,4 @@ ngrok.exe
 *.crt
 secrets/
 uploads/
+.vercel/

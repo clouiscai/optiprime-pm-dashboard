@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import optiPrimeLogo from "./assets/OptiPrime_logo_blackbg.jpg";
-import { apiFetch, downloadCsv, getApiBase, getWsUrl } from "./api";
+import { REALTIME_ENABLED, apiFetch, downloadCsv, getApiBase, getWsUrl } from "./api";
 
 const tabs = ["Dashboard", "Tasks", "Kanban", "Gantt", "BOM/Budget", "Equipments/Asset", "Members", "Sponsors", "Blockers"];
 const statusColumns = [
@@ -239,7 +239,7 @@ export default function App() {
   }, [resetTimelineRange]);
 
   useEffect(() => {
-    if (!authorized) return;
+    if (!authorized || !REALTIME_ENABLED) return;
     const socket = new WebSocket(getWsUrl(token));
     socket.onmessage = () => refresh();
     socket.onerror = () => setToast("Realtime connection interrupted");

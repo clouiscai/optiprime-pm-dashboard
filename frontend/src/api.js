@@ -1,4 +1,5 @@
 const API_BASE = import.meta.env.VITE_API_URL || `${window.location.origin}/api`;
+export const REALTIME_ENABLED = import.meta.env.VITE_ENABLE_REALTIME === "true";
 
 export function getApiBase() {
   return API_BASE;

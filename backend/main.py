@@ -24,7 +24,7 @@ allowed_origins.extend([origin.strip() for origin in os.getenv("FRONTEND_ORIGINS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"https://.*\.ngrok-free\.app",
+    allow_origin_regex=r"https://.*\.(ngrok-free\.app|vercel\.app)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
