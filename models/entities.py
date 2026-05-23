@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
 from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.session import Base
@@ -58,7 +59,7 @@ class Task(Base):
     priority: Mapped[str] = mapped_column(String(32), default="medium", index=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
-    dependencies: Mapped[list[int]] = mapped_column(JSON, default=list)
+    dependencies: Mapped[list[int]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), default=list)
     progress: Mapped[int] = mapped_column(Integer, default=0)
 
     project: Mapped[Project] = relationship(back_populates="tasks")

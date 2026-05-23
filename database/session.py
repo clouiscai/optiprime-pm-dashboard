@@ -41,6 +41,7 @@ def init_db():
 
     Base.metadata.create_all(bind=engine)
     run_sqlite_migrations()
+    run_postgres_migrations()
 
 
 def run_sqlite_migrations():
@@ -86,3 +87,19 @@ def run_sqlite_migrations():
             column_name = table_key.split(".")[1]
             if column_name not in columns:
                 connection.execute(text(statement))
+
+
+def run_postgres_migrations():
+    if not DATABASE_URL.startswith("postgresql"):
+        return
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                ALTER TABLE IF EXISTS tasks
+                ALTER COLUMN dependencies TYPE JSONB
+                USING COALESCE(dependencies::jsonb, '[]'::jsonb)
+                """
+            )
+        )
