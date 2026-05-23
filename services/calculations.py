@@ -1,7 +1,6 @@
 from datetime import date
 
-from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from models.entities import Blocker, BOMItem, BudgetLog, Project, Sponsor, Task, Team
 
@@ -30,11 +29,6 @@ def task_with_open_blockers(task: Task) -> dict:
 
 
 def project_dashboard(db: Session, project: Project, team_id: int | None = None) -> dict:
-    task_query = db.query(Task).filter(Task.project_id == project.id)
-    blocker_query = db.query(Blocker).join(Task, Blocker.task_id == Task.id).filter(Task.project_id == project.id, Blocker.status == "open")
-    bom_query = db.query(BOMItem).filter(BOMItem.project_id == project.id)
-    log_query = db.query(BudgetLog).filter(BudgetLog.project_id == project.id)
-    sponsor_query = db.query(Sponsor).filter(Sponsor.project_id == project.id)
     team = db.get(Team, team_id) if team_id else None
 
     teams = db.query(Team).filter(Team.project_id == project.id).order_by(Team.code).all()
@@ -43,20 +37,30 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
     shared_bom_total = round(sum(item.quantity * item.unit_cost for item in shared_bom_items if not item.sponsored_by), 2)
     shared_bom_per_team = round(shared_bom_total / team_count, 2) if teams else 0
 
-    if team_id:
-        task_query = task_query.filter(Task.team_id == team_id)
-        blocker_query = blocker_query.filter(Task.team_id == team_id)
-        bom_query = bom_query.filter(or_(BOMItem.team_id == team_id, BOMItem.team_id.is_(None)))
-        log_query = log_query.filter(BudgetLog.team_id == team_id)
-        sponsor_query = sponsor_query.filter(Sponsor.team_id == team_id)
-
-    tasks = task_query.all()
-    blockers = (
-        blocker_query.all()
+    all_tasks = db.query(Task).filter(Task.project_id == project.id).all()
+    all_bom_items = db.query(BOMItem).filter(BOMItem.project_id == project.id).all()
+    all_logs = db.query(BudgetLog).filter(BudgetLog.project_id == project.id).all()
+    all_sponsors = db.query(Sponsor).filter(Sponsor.project_id == project.id).all()
+    all_blockers = (
+        db.query(Blocker)
+        .options(joinedload(Blocker.task))
+        .join(Task, Blocker.task_id == Task.id)
+        .filter(Task.project_id == project.id, Blocker.status == "open")
+        .all()
     )
-    bom_items = bom_query.all()
-    logs = log_query.all()
-    sponsors = sponsor_query.all()
+
+    if team_id:
+        tasks = [task for task in all_tasks if task.team_id == team_id]
+        blockers = [blocker for blocker in all_blockers if blocker.task and blocker.task.team_id == team_id]
+        bom_items = [item for item in all_bom_items if item.team_id == team_id or item.team_id is None]
+        logs = [log for log in all_logs if log.team_id == team_id]
+        sponsors = [sponsor for sponsor in all_sponsors if sponsor.team_id == team_id]
+    else:
+        tasks = all_tasks
+        blockers = all_blockers
+        bom_items = all_bom_items
+        logs = all_logs
+        sponsors = all_sponsors
 
     parent_ids = {child.parent_task_id for child in tasks if child.parent_task_id}
     leaf_tasks = [task for task in tasks if task.id not in parent_ids]
@@ -80,11 +84,11 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
             priority_counts[task.priority] = priority_counts.get(task.priority, 0) + 1
     team_summaries = []
     for summary_team in teams:
-        team_tasks = [task for task in db.query(Task).filter(Task.project_id == project.id, Task.team_id == summary_team.id).all()]
-        team_bom_total = sum(item.quantity * item.unit_cost for item in db.query(BOMItem).filter(BOMItem.project_id == project.id, BOMItem.team_id == summary_team.id).all() if not item.sponsored_by)
+        team_tasks = [task for task in all_tasks if task.team_id == summary_team.id]
+        team_bom_total = sum(item.quantity * item.unit_cost for item in all_bom_items if item.team_id == summary_team.id and not item.sponsored_by)
         team_bom_total += shared_bom_per_team
-        team_log_total = sum(log.amount for log in db.query(BudgetLog).filter(BudgetLog.project_id == project.id, BudgetLog.team_id == summary_team.id).all() if not log.sponsored_by)
-        team_sponsor_total = sum(sponsor.amount for sponsor in db.query(Sponsor).filter(Sponsor.project_id == project.id, Sponsor.team_id == summary_team.id).all())
+        team_log_total = sum(log.amount for log in all_logs if log.team_id == summary_team.id and not log.sponsored_by)
+        team_sponsor_total = sum(sponsor.amount for sponsor in all_sponsors if sponsor.team_id == summary_team.id)
         team_parent_ids = {task.parent_task_id for task in team_tasks if task.parent_task_id}
         team_leaf_tasks = [task for task in team_tasks if task.id not in team_parent_ids] or team_tasks
         team_planned_budget = summary_team.budget
@@ -97,7 +101,7 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
                 "budget": team_planned_budget,
                 "sponsor_total": round(team_sponsor_total, 2),
                 "completion": round(sum(task.progress for task in team_leaf_tasks) / len(team_leaf_tasks), 1) if team_leaf_tasks else 0,
-                "open_blockers": db.query(Blocker).join(Task).filter(Task.project_id == project.id, Task.team_id == summary_team.id, Blocker.status == "open").count(),
+                "open_blockers": len([blocker for blocker in all_blockers if blocker.task and blocker.task.team_id == summary_team.id]),
                 "actual_spend": round(team_bom_total + team_log_total, 2),
             }
         )

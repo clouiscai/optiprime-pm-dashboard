@@ -422,13 +422,7 @@ def list_bom(project_id: int, _: Protected, team_id: int | None = None, db: Sess
     query = db.query(BOMItem).filter(BOMItem.project_id == project_id)
     if team_id:
         query = query.filter(or_(BOMItem.team_id == team_id, BOMItem.team_id.is_(None)))
-    items = query.order_by(BOMItem.category, BOMItem.name).all()
-    changed = False
-    for item in items:
-        changed = normalize_bom_item_versions(db, item) or changed
-    if changed:
-        db.commit()
-    return items
+    return query.order_by(BOMItem.category, BOMItem.name).all()
 
 
 @router.post("/bom", response_model=BOMItemRead)

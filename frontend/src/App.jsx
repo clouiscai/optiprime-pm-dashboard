@@ -155,11 +155,23 @@ export default function App() {
     setTimelineEnd(currentProject.end_date || today);
   }, [currentProject]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (scope = "all") => {
     if (!projectId || !authorized) return;
     setBusy(true);
     try {
       const query = teamQuery(selectedTeam);
+      if (scope === "tasks") {
+        const [tasks, blockers] = await Promise.all([
+          apiFetch(`/projects/${projectId}/tasks${query}`, token),
+          apiFetch(`/projects/${projectId}/blockers${query}`, token),
+        ]);
+        setData((current) => ({
+          ...current,
+          tasks: Array.isArray(tasks) ? tasks : [],
+          blockers: Array.isArray(blockers) ? blockers : [],
+        }));
+        return;
+      }
       const [teams, dashboard, tasks, blockers, bom, budget, invoices, sponsors, assets, users] = await Promise.all([
         apiFetch(`/projects/${projectId}/teams`, token),
         apiFetch(`/projects/${projectId}/dashboard${query}`, token),
@@ -252,7 +264,7 @@ export default function App() {
       return;
     }
     await apiFetch(`/tasks/${taskId}`, token, { method: "PATCH", body: JSON.stringify(patch) });
-    await refresh();
+    await refresh("tasks");
   }
 
   async function deleteTask(task) {
@@ -262,7 +274,7 @@ export default function App() {
     }
     if (!window.confirm(`Delete task "${task.title}"? This also removes its blockers and audit history.`)) return;
     await apiFetch(`/tasks/${task.id}`, token, { method: "DELETE" });
-    await refresh();
+    await refresh("tasks");
   }
 
   function logout() {
@@ -527,7 +539,7 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
     if (!draft.title.trim()) return;
     await apiFetch("/tasks", token, { method: "POST", body: JSON.stringify({ ...draft, project_id: projectId, team_id: draft.team_id ? Number(draft.team_id) : null }) });
     setDraft(emptyTask(projectId, defaultTeam));
-    await onRefresh();
+    await onRefresh("tasks");
   }
 
   function editTask(task) {
