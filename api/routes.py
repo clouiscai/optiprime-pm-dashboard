@@ -1,5 +1,6 @@
 import csv
 import io
+import logging
 from pathlib import Path
 from uuid import uuid4
 from datetime import datetime
@@ -53,6 +54,7 @@ from services.realtime import manager
 
 
 router = APIRouter()
+logger = logging.getLogger("optiprime.api")
 Protected = Annotated[str, Depends(require_token)]
 Writable = Annotated[str, Depends(require_write_token)]
 ROOT = Path(__file__).resolve().parents[1]
@@ -215,12 +217,17 @@ def list_tasks(project_id: int, _: Protected, team_id: int | None = None, genera
 
 @router.post("/tasks", response_model=TaskRead)
 async def create_task(payload: TaskCreate, _: Writable, db: Session = Depends(get_db)):
-    get_project_or_404(db, payload.project_id)
-    task = Task(**payload.model_dump())
-    validate_parent_task(db, task, task.parent_task_id)
-    db.add(task)
-    db.commit()
-    db.refresh(task)
+    try:
+        get_project_or_404(db, payload.project_id)
+        task = Task(**payload.model_dump())
+        validate_parent_task(db, task, task.parent_task_id)
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to create task")
+        raise
     await manager.broadcast("task.created", {"project_id": task.project_id, "task_id": task.id})
     return task_with_open_blockers(task)
 
@@ -259,8 +266,13 @@ async def update_task(task_id: int, payload: TaskUpdate, _: Writable, db: Sessio
             )
             setattr(task, field, new_value)
 
-    db.commit()
-    db.refresh(task)
+    try:
+        db.commit()
+        db.refresh(task)
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to update task %s", task_id)
+        raise
     await manager.broadcast("task.updated", {"project_id": task.project_id, "task_id": task.id})
     return task_with_open_blockers(task)
 
