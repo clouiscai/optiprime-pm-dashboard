@@ -1,4 +1,5 @@
 import os
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -11,6 +12,7 @@ from database.seed import seed
 from database.session import init_db
 
 
+logger = logging.getLogger(__name__)
 app = FastAPI(title="OptiPrime Project OS", version="0.1.0")
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIST = ROOT / "frontend" / "dist"
@@ -33,8 +35,14 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup():
-    init_db()
-    seed()
+    if os.getenv("OPTIPRIME_SKIP_STARTUP_DB", "").lower() in {"1", "true", "yes"}:
+        logger.info("Skipping startup database maintenance.")
+        return
+    try:
+        init_db()
+        seed()
+    except Exception:
+        logger.exception("Database startup failed; serving non-database routes while configuration is fixed.")
 
 
 @app.get("/health")

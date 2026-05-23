@@ -4,7 +4,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
-from sqlalchemy.pool import NullPool
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +18,7 @@ if DATABASE_URL.startswith("postgres://"):
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine_options = {"connect_args": connect_args, "future": True, "pool_pre_ping": True}
 if DATABASE_URL.startswith("postgresql"):
-    engine_options["poolclass"] = NullPool
+    engine_options.update({"pool_size": 1, "max_overflow": 2, "pool_recycle": 300})
 engine = create_engine(DATABASE_URL, **engine_options)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 

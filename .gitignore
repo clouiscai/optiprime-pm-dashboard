@@ -9,6 +9,7 @@ database/*.sqlite
 database/*.sqlite3
 database/*.db-shm
 database/*.db-wal
+database/supabase_migration.sql
 frontend/node_modules/
 frontend/dist/
 .env
