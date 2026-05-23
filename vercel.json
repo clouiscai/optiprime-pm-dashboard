@@ -2,11 +2,6 @@
   "installCommand": "python -m pip install -r requirements.txt && cd frontend && npm install",
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/dist",
-  "functions": {
-    "api/index.py": {
-      "excludeFiles": "{.git,frontend/node_modules,frontend/dist,.venv,database/*.db,uploads,logs}/**"
-    }
-  },
   "rewrites": [
     {
       "source": "/api/(.*)",
