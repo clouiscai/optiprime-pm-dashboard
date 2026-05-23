@@ -3,18 +3,18 @@
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "app.py": {
+    "api/index.py": {
       "excludeFiles": "{.git,frontend/node_modules,frontend/dist,.venv,database/*.db,uploads,logs}/**"
     }
   },
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/app.py"
+      "destination": "/api/index.py"
     },
     {
       "source": "/health",
-      "destination": "/app.py"
+      "destination": "/api/index.py"
     },
     {
       "source": "/(.*)",
