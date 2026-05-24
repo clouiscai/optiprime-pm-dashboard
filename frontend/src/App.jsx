@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import optiPrimeLogo from "./assets/OptiPrime_logo_blackbg.jpg";
 import { REALTIME_ENABLED, apiFetch, downloadCsv, getApiBase, getWsUrl } from "./api";
 
-const tabs = ["Dashboard", "Tasks", "Kanban", "Gantt", "BOM/Budget", "Equipments/Asset", "Members", "Sponsors", "Blockers"];
+const tabs = ["Dashboard", "Projects", "Tasks", "Kanban", "Gantt", "BOM/Budget", "Equipments/Asset", "Members", "Sponsors", "Blockers"];
 const statusColumns = [
   ["todo", "To Do"],
   ["in_progress", "In Progress"],
@@ -179,7 +179,7 @@ export default function App() {
         apiFetch(`/projects/${projectId}/blockers${query}`, token),
         apiFetch(`/projects/${projectId}/bom${query}`, token),
         apiFetch(`/projects/${projectId}/budget${query}`, token),
-        apiFetch(`/projects/${projectId}/invoices${query}`, token),
+        apiFetch(`/projects/${projectId}/invoices`, token),
         apiFetch(`/projects/${projectId}/sponsors`, token),
         apiFetch(`/projects/${projectId}/assets${query}`, token),
         apiFetch("/users", token),
@@ -343,6 +343,17 @@ export default function App() {
           </div>
           <div className="topbar-meta">
             <label>
+              Project
+              <select value={projectId || ""} onChange={(event) => {
+                setProjectId(Number(event.target.value));
+                setSelectedTeam("master");
+              }}>
+                {projects.map((project) => (
+                  <option value={project.id} key={project.id}>{project.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
               From
               <input type="date" value={timelineStart} onChange={(event) => setTimelineStart(event.target.value)} />
             </label>
@@ -360,6 +371,21 @@ export default function App() {
         )}
 
         {activeTab === "Dashboard" && <Dashboard dashboard={data.dashboard} tasks={data.tasks} selectedTeam={selectedTeam} />}
+        {activeTab === "Projects" && (
+          <Projects
+            projects={projects}
+            currentProjectId={projectId}
+            token={token}
+            teams={data.teams}
+            canEdit={canEdit}
+            onProjectsChange={setProjects}
+            onProjectSelect={(id) => {
+              setProjectId(id);
+              setSelectedTeam("master");
+            }}
+            onRefresh={refresh}
+          />
+        )}
         {activeTab === "Tasks" && (
           <TasksView
             projectId={projectId}
@@ -929,6 +955,253 @@ function Gantt({ tasks, teams, rangeStart, rangeEnd, onResetRange }) {
   );
 }
 
+function Projects({ projects, currentProjectId, token, teams, canEdit, onProjectsChange, onProjectSelect, onRefresh }) {
+  const currentProject = projects.find((project) => project.id === Number(currentProjectId));
+  const [projectEdits, setProjectEdits] = useState({});
+  const [teamEdits, setTeamEdits] = useState({});
+  const [projectDraft, setProjectDraft] = useState({
+    name: "",
+    description: "",
+    start_date: today,
+    end_date: today,
+    budget: 0,
+  });
+  const [teamDraft, setTeamDraft] = useState({
+    code: "",
+    name: "",
+    domain: "",
+    description: "",
+    budget: 0,
+  });
+
+  useEffect(() => {
+    const nextProjects = {};
+    projects.forEach((project) => {
+      nextProjects[project.id] = {
+        name: project.name || "",
+        description: project.description || "",
+        start_date: project.start_date || today,
+        end_date: project.end_date || today,
+        budget: project.budget || 0,
+      };
+    });
+    setProjectEdits(nextProjects);
+  }, [projects]);
+
+  useEffect(() => {
+    const nextTeams = {};
+    teams.forEach((team) => {
+      nextTeams[team.id] = {
+        code: team.code || "",
+        name: team.name || "",
+        domain: team.domain || "",
+        description: team.description || "",
+        budget: team.budget || 0,
+      };
+    });
+    setTeamEdits(nextTeams);
+  }, [teams]);
+
+  async function reloadProjects() {
+    const loadedProjects = await apiFetch("/projects", token);
+    onProjectsChange(Array.isArray(loadedProjects) ? loadedProjects : []);
+    return loadedProjects;
+  }
+
+  async function createProject(event) {
+    event.preventDefault();
+    if (!canEdit || !projectDraft.name.trim()) return;
+    const created = await apiFetch("/projects", token, {
+      method: "POST",
+      body: JSON.stringify({
+        ...projectDraft,
+        name: projectDraft.name.trim(),
+        description: projectDraft.description.trim(),
+        budget: Number(projectDraft.budget || 0),
+      }),
+    });
+    const loadedProjects = await reloadProjects();
+    onProjectSelect(created?.id || loadedProjects?.at(-1)?.id || currentProjectId);
+    setProjectDraft({ name: "", description: "", start_date: today, end_date: today, budget: 0 });
+    await onRefresh();
+  }
+
+  async function saveProject(project) {
+    if (!canEdit) return;
+    const edit = projectEdits[project.id];
+    await apiFetch(`/projects/${project.id}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: edit.name.trim(),
+        description: edit.description.trim(),
+        start_date: edit.start_date || null,
+        end_date: edit.end_date || null,
+        budget: Number(edit.budget || 0),
+      }),
+    });
+    await reloadProjects();
+    await onRefresh();
+  }
+
+  async function createTeam(event) {
+    event.preventDefault();
+    if (!canEdit || !currentProject || !teamDraft.code.trim() || !teamDraft.name.trim()) return;
+    await apiFetch("/teams", token, {
+      method: "POST",
+      body: JSON.stringify({
+        project_id: currentProject.id,
+        code: teamDraft.code.trim(),
+        name: teamDraft.name.trim(),
+        domain: teamDraft.domain.trim() || teamDraft.name.trim(),
+        description: teamDraft.description.trim(),
+        budget: Number(teamDraft.budget || 0),
+      }),
+    });
+    setTeamDraft({ code: "", name: "", domain: "", description: "", budget: 0 });
+    await onRefresh();
+  }
+
+  async function saveTeam(team) {
+    if (!canEdit) return;
+    const edit = teamEdits[team.id];
+    await apiFetch(`/teams/${team.id}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({
+        code: edit.code.trim(),
+        name: edit.name.trim(),
+        domain: edit.domain.trim(),
+        description: edit.description.trim(),
+        budget: Number(edit.budget || 0),
+      }),
+    });
+    await onRefresh();
+  }
+
+  async function deleteTeam(team) {
+    if (!canEdit) return;
+    if (!window.confirm(`Remove team "${team.code}"? Existing records will become General records.`)) return;
+    await apiFetch(`/teams/${team.id}`, token, { method: "DELETE" });
+    await onRefresh();
+  }
+
+  return (
+    <section className="stack">
+      <div className="section-card">
+        <div className="section-head">
+          <h2>Projects</h2>
+        </div>
+        {canEdit && (
+          <form className="project-form" onSubmit={createProject}>
+            <label className="compact-field">
+              <span>Name</span>
+              <input placeholder="Project name" value={projectDraft.name} onChange={(event) => setProjectDraft({ ...projectDraft, name: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Description</span>
+              <input placeholder="Description" value={projectDraft.description} onChange={(event) => setProjectDraft({ ...projectDraft, description: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Start</span>
+              <input type="date" value={projectDraft.start_date} onChange={(event) => setProjectDraft({ ...projectDraft, start_date: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>End</span>
+              <input type="date" value={projectDraft.end_date} onChange={(event) => setProjectDraft({ ...projectDraft, end_date: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Budget</span>
+              <input type="number" min="0" step="0.01" value={projectDraft.budget} onChange={(event) => setProjectDraft({ ...projectDraft, budget: event.target.value })} />
+            </label>
+            <button>Add Project</button>
+          </form>
+        )}
+        <div className="table-wrap">
+          <table className="settings-table">
+            <thead>
+              <tr><th>Name</th><th>Description</th><th>Start</th><th>End</th><th>Budget</th><th></th></tr>
+            </thead>
+            <tbody>
+              {projects.map((project) => {
+                const edit = projectEdits[project.id] || project;
+                return (
+                  <tr key={project.id} className={project.id === Number(currentProjectId) ? "selected-row" : ""}>
+                    <td>{canEdit ? <input value={edit.name || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, name: event.target.value } })} /> : project.name}</td>
+                    <td>{canEdit ? <input value={edit.description || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, description: event.target.value } })} /> : project.description}</td>
+                    <td>{canEdit ? <input type="date" value={edit.start_date || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, start_date: event.target.value } })} /> : shortDate(project.start_date)}</td>
+                    <td>{canEdit ? <input type="date" value={edit.end_date || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, end_date: event.target.value } })} /> : shortDate(project.end_date)}</td>
+                    <td>{canEdit ? <input type="number" min="0" step="0.01" value={edit.budget || 0} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, budget: event.target.value } })} /> : money(project.budget)}</td>
+                    <td className="row-actions">
+                      <button type="button" onClick={() => onProjectSelect(project.id)}>Open</button>
+                      {canEdit && <button type="button" onClick={() => saveProject(project)}>Save</button>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="section-card">
+        <div className="section-head">
+          <h2>Teams</h2>
+        </div>
+        {canEdit && (
+          <form className="team-form" onSubmit={createTeam}>
+            <label className="compact-field">
+              <span>Code</span>
+              <input placeholder="UAV" value={teamDraft.code} onChange={(event) => setTeamDraft({ ...teamDraft, code: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Name</span>
+              <input placeholder="Team name" value={teamDraft.name} onChange={(event) => setTeamDraft({ ...teamDraft, name: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Domain</span>
+              <input placeholder="Domain" value={teamDraft.domain} onChange={(event) => setTeamDraft({ ...teamDraft, domain: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Budget</span>
+              <input type="number" min="0" step="0.01" value={teamDraft.budget} onChange={(event) => setTeamDraft({ ...teamDraft, budget: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Description</span>
+              <input placeholder="Description" value={teamDraft.description} onChange={(event) => setTeamDraft({ ...teamDraft, description: event.target.value })} />
+            </label>
+            <button>Add Team</button>
+          </form>
+        )}
+        <div className="table-wrap">
+          <table className="settings-table">
+            <thead>
+              <tr><th>Code</th><th>Name</th><th>Domain</th><th>Budget</th><th>Description</th><th></th></tr>
+            </thead>
+            <tbody>
+              {teams.map((team) => {
+                const edit = teamEdits[team.id] || team;
+                return (
+                  <tr key={team.id}>
+                    <td>{canEdit ? <input value={edit.code || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, code: event.target.value } })} /> : team.code}</td>
+                    <td>{canEdit ? <input value={edit.name || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, name: event.target.value } })} /> : team.name}</td>
+                    <td>{canEdit ? <input value={edit.domain || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, domain: event.target.value } })} /> : team.domain}</td>
+                    <td>{canEdit ? <input type="number" min="0" step="0.01" value={edit.budget || 0} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, budget: event.target.value } })} /> : money(team.budget)}</td>
+                    <td>{canEdit ? <input value={edit.description || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, description: event.target.value } })} /> : team.description}</td>
+                    <td className="row-actions">
+                      {canEdit && <button type="button" onClick={() => saveTeam(team)}>Save</button>}
+                      {canEdit && <button type="button" className="danger-button" onClick={() => deleteTeam(team)}>Remove</button>}
+                    </td>
+                  </tr>
+                );
+              })}
+              {teams.length === 0 && <tr><td colSpan="6">No teams yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, bom, budget, invoices, canEdit, onRefresh }) {
   const isMaster = selectedTeam === "master";
   const defaultTeam = teamId || teams[0]?.id || null;
@@ -941,7 +1214,7 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
   const [showPlan, setShowPlan] = useState(false);
   const [bomExpanded, setBomExpanded] = useState(false);
   const [budgetTab, setBudgetTab] = useState("logs");
-  const [invoiceDraft, setInvoiceDraft] = useState({ team_id: defaultTeam, description: "", file: null });
+  const [invoiceDraft, setInvoiceDraft] = useState({ description: "", file: null });
   const bomCategories = [...new Set(bom.map((item) => item.category?.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const groupedBom = bom.reduce((groups, item) => {
     const category = item.category?.trim() || "Uncategorized";
@@ -958,7 +1231,7 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
   useEffect(() => {
     setBomDraft({ project_id: projectId, team_id: defaultBomTeam, category: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
     setBudgetDraft({ project_id: projectId, team_id: defaultTeam, category: "", amount: 0, date: today, notes: "", sponsored_by: "" });
-    setInvoiceDraft({ team_id: defaultTeam, description: "", file: null });
+    setInvoiceDraft({ description: "", file: null });
     setHistory({});
   }, [projectId, defaultTeam, defaultBomTeam, selectedTeam]);
 
@@ -1013,14 +1286,13 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
 
   async function uploadInvoice(event) {
     event.preventDefault();
-    if (!invoiceDraft.description.trim() || !invoiceDraft.file || !invoiceDraft.team_id) return;
+    if (!invoiceDraft.description.trim() || !invoiceDraft.file) return;
     if (invoiceDraft.file.type !== "application/pdf" || !invoiceDraft.file.name.toLowerCase().endsWith(".pdf")) {
       window.alert("Only PDF invoices are accepted.");
       return;
     }
     const form = new FormData();
     form.append("project_id", String(projectId));
-    form.append("team_id", String(invoiceDraft.team_id));
     form.append("description", invoiceDraft.description.trim());
     form.append("file", invoiceDraft.file);
     try {
@@ -1030,7 +1302,7 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
         body: form,
       });
       if (!response.ok) throw new Error(await response.text() || "Invoice upload failed");
-      setInvoiceDraft({ team_id: defaultTeam, description: "", file: null });
+      setInvoiceDraft({ description: "", file: null });
       event.target.reset();
       await onRefresh();
     } catch (error) {
@@ -1045,7 +1317,8 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
     });
     if (!response.ok) {
       viewer?.close();
-      window.alert("Invoice could not be opened.");
+      const message = await response.text();
+      window.alert(message || "Invoice could not be opened.");
       return;
     }
     const blob = await response.blob();
@@ -1212,20 +1485,6 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
             <div className="invoice-panel">
               {canEdit && (
                 <form className="invoice-form" onSubmit={uploadInvoice}>
-                  {isMaster ? (
-                    <label className="compact-field">
-                      <span>Team</span>
-                      <select value={invoiceDraft.team_id || ""} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, team_id: Number(event.target.value) })}>
-                        <option value="">Team</option>
-                        {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
-                      </select>
-                    </label>
-                  ) : (
-                    <label className="compact-field">
-                      <span>Team</span>
-                      <div className="locked-field">{teamName(teams, defaultTeam)}</div>
-                    </label>
-                  )}
                   <label className="compact-field invoice-description-field">
                     <span>Description</span>
                     <input placeholder="Invoice description" value={invoiceDraft.description} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, description: event.target.value })} />
@@ -1241,7 +1500,7 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
                 {invoices.map((invoice) => (
                   <article className="budget-log-card" key={invoice.id}>
                     <div>
-                      <strong>{teamCode(teams, invoice.team_id)} - {invoice.description}</strong>
+                      <strong>{invoice.description}</strong>
                       <span>{invoice.original_filename} - {shortDate(invoice.uploaded_at?.slice(0, 10))}</span>
                     </div>
                     <div className="row-actions">

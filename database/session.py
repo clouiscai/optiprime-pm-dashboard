@@ -60,6 +60,7 @@ def run_sqlite_migrations():
         "budget_logs.team_id": "ALTER TABLE budget_logs ADD COLUMN team_id INTEGER REFERENCES teams(id)",
         "budget_logs.sponsored_by": "ALTER TABLE budget_logs ADD COLUMN sponsored_by VARCHAR(160) DEFAULT '' NOT NULL",
         "users.team_id": "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
+        "invoices.file_data": "ALTER TABLE invoices ADD COLUMN file_data TEXT DEFAULT '' NOT NULL",
     }
     create_statements = {
         "invoices": """
@@ -70,6 +71,7 @@ def run_sqlite_migrations():
                 description VARCHAR(220) NOT NULL,
                 original_filename VARCHAR(220) NOT NULL,
                 stored_filename VARCHAR(260) NOT NULL,
+                file_data TEXT DEFAULT '' NOT NULL,
                 uploaded_at DATETIME NOT NULL
             )
         """,
@@ -102,3 +104,4 @@ def run_postgres_migrations():
                 """
             )
         )
+        connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS file_data TEXT DEFAULT '' NOT NULL"))

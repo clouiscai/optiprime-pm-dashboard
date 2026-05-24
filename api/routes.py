@@ -1,3 +1,4 @@
+import base64
 import csv
 import io
 import logging
@@ -7,8 +8,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from sqlalchemy.orm import Session, joinedload
 
 from database.session import get_db
@@ -33,6 +33,7 @@ from models.schemas import (
     LoginResponse,
     ProjectCreate,
     ProjectRead,
+    ProjectUpdate,
     SponsorCreate,
     SponsorRead,
     SponsorUpdate,
@@ -104,6 +105,21 @@ def normalize_bom_item_versions(db: Session, item: BOMItem) -> bool:
     return changed
 
 
+def ensure_invoice_file_data_column(db: Session):
+    try:
+        if db.bind and db.bind.dialect.name == "sqlite":
+            columns = [row[1] for row in db.execute(text("PRAGMA table_info(invoices)")).all()]
+            if "file_data" not in columns:
+                db.execute(text("ALTER TABLE invoices ADD COLUMN file_data TEXT DEFAULT '' NOT NULL"))
+        else:
+            db.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS file_data TEXT DEFAULT '' NOT NULL"))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to ensure invoice file_data column")
+        raise
+
+
 def validate_parent_task(db: Session, task: Task, parent_task_id: int | None):
     if not parent_task_id:
         return
@@ -163,6 +179,17 @@ async def create_project(payload: ProjectCreate, _: Writable, db: Session = Depe
     return project
 
 
+@router.patch("/projects/{project_id}", response_model=ProjectRead)
+async def update_project(project_id: int, payload: ProjectUpdate, _: Writable, db: Session = Depends(get_db)):
+    project = get_project_or_404(db, project_id)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(project, field, value)
+    db.commit()
+    db.refresh(project)
+    await manager.broadcast("project.updated", {"project_id": project.id})
+    return project
+
+
 @router.get("/projects/{project_id}/teams", response_model=list[TeamRead])
 def list_teams(project_id: int, _: Protected, db: Session = Depends(get_db)):
     get_project_or_404(db, project_id)
@@ -191,6 +218,20 @@ async def update_team(team_id: int, payload: TeamUpdate, _: Writable, db: Sessio
     db.refresh(team)
     await manager.broadcast("team.updated", {"project_id": team.project_id, "team_id": team.id})
     return team
+
+
+@router.delete("/teams/{team_id}", status_code=204)
+async def delete_team(team_id: int, _: Writable, db: Session = Depends(get_db)):
+    team = db.get(Team, team_id)
+    if not team:
+        raise HTTPException(404, "Team not found")
+    project_id = team.project_id
+    for model in (Task, BOMItem, BudgetLog, Sponsor, Asset, User, Invoice):
+        db.query(model).filter(model.team_id == team_id).update({model.team_id: None}, synchronize_session=False)
+    db.delete(team)
+    db.commit()
+    await manager.broadcast("team.updated", {"project_id": project_id, "team_id": team_id})
+    return Response(status_code=204)
 
 
 @router.get("/projects/{project_id}/dashboard", response_model=DashboardRead)
@@ -587,24 +628,22 @@ async def delete_budget_log(log_id: int, _: Writable, db: Session = Depends(get_
 
 
 @router.get("/projects/{project_id}/invoices", response_model=list[InvoiceRead])
-def list_invoices(project_id: int, _: Protected, team_id: int | None = None, db: Session = Depends(get_db)):
+def list_invoices(project_id: int, _: Protected, db: Session = Depends(get_db)):
     get_project_or_404(db, project_id)
-    query = db.query(Invoice).filter(Invoice.project_id == project_id)
-    if team_id:
-        query = query.filter(Invoice.team_id == team_id)
-    return query.order_by(Invoice.uploaded_at.desc(), Invoice.id.desc()).all()
+    ensure_invoice_file_data_column(db)
+    return db.query(Invoice).filter(Invoice.project_id == project_id).order_by(Invoice.uploaded_at.desc(), Invoice.id.desc()).all()
 
 
 @router.post("/invoices", response_model=InvoiceRead)
 async def upload_invoice(
     _: Writable,
     project_id: int = Form(...),
-    team_id: int | None = Form(default=None),
     description: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
     get_project_or_404(db, project_id)
+    ensure_invoice_file_data_column(db)
     original_name = Path(file.filename or "invoice.pdf").name
     if file.content_type != "application/pdf" or Path(original_name).suffix.lower() != ".pdf":
         raise HTTPException(400, "Only PDF invoices are accepted")
@@ -613,18 +652,15 @@ async def upload_invoice(
     if not content.startswith(b"%PDF"):
         raise HTTPException(400, "Only valid PDF invoices are accepted")
 
-    project_dir = INVOICE_DIR / str(project_id)
-    project_dir.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid4().hex}.pdf"
-    stored_path = project_dir / stored_name
-    stored_path.write_bytes(content)
 
     invoice = Invoice(
         project_id=project_id,
-        team_id=team_id,
+        team_id=None,
         description=description.strip(),
         original_filename=original_name,
         stored_filename=str(Path(str(project_id)) / stored_name),
+        file_data=base64.b64encode(content).decode("ascii"),
         uploaded_at=datetime.utcnow(),
     )
     db.add(invoice)
@@ -636,16 +672,28 @@ async def upload_invoice(
 
 @router.get("/invoices/{invoice_id}/file")
 def view_invoice(invoice_id: int, _: Protected, db: Session = Depends(get_db)):
+    ensure_invoice_file_data_column(db)
     invoice = db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(404, "Invoice not found")
+    safe_name = invoice.original_filename.replace(chr(34), "")
+    if invoice.file_data:
+        try:
+            content = base64.b64decode(invoice.file_data)
+        except Exception as exc:
+            raise HTTPException(500, "Invoice file is corrupted") from exc
+        return Response(
+            content=content,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+        )
     path = (INVOICE_DIR / invoice.stored_filename).resolve()
     if not str(path).startswith(str(INVOICE_DIR.resolve())) or not path.exists():
-        raise HTTPException(404, "Invoice file not found")
-    return FileResponse(
-        path,
+        raise HTTPException(404, "Invoice file was not migrated. Please delete and re-upload the PDF.")
+    return Response(
+        content=path.read_bytes(),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{invoice.original_filename.replace(chr(34), "")}"'},
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
     )
 
 
@@ -655,10 +703,10 @@ async def delete_invoice(invoice_id: int, _: Writable, db: Session = Depends(get
     if not invoice:
         raise HTTPException(404, "Invoice not found")
     project_id = invoice.project_id
-    path = (INVOICE_DIR / invoice.stored_filename).resolve()
+    path = (INVOICE_DIR / invoice.stored_filename).resolve() if invoice.stored_filename else None
     db.delete(invoice)
     db.commit()
-    if str(path).startswith(str(INVOICE_DIR.resolve())) and path.exists():
+    if path and str(path).startswith(str(INVOICE_DIR.resolve())) and path.exists():
         path.unlink()
     await manager.broadcast("invoice.updated", {"project_id": project_id, "invoice_id": invoice_id})
     return Response(status_code=204)

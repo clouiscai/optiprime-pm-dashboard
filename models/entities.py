@@ -144,6 +144,7 @@ class Invoice(Base):
     description: Mapped[str] = mapped_column(String(220), nullable=False)
     original_filename: Mapped[str] = mapped_column(String(220), nullable=False)
     stored_filename: Mapped[str] = mapped_column(String(260), nullable=False)
+    file_data: Mapped[str] = mapped_column(Text, default="")
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     project: Mapped[Project] = relationship()

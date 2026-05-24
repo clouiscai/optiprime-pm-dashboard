@@ -16,6 +16,14 @@ class ProjectCreate(ProjectBase):
     pass
 
 
+class ProjectUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    start_date: DateType | None = None
+    end_date: DateType | None = None
+    budget: float | None = None
+
+
 class ProjectRead(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 
