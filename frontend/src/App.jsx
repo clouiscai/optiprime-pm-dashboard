@@ -1117,6 +1117,7 @@ function TeamSetup({ projectId, token, teams, canEdit, onRefresh }) {
 }
 
 function ProjectPortal({ projects, token, canEdit, onProjectsChange, onReloadProjects, onOpenProject, onLogout }) {
+  const [editing, setEditing] = useState(false);
   const [projectEdits, setProjectEdits] = useState({});
   const [deleteProjectId, setDeleteProjectId] = useState(null);
   const [deleteDraft, setDeleteDraft] = useState({ admin_password: "", confirm_password: "" });
@@ -1217,8 +1218,9 @@ function ProjectPortal({ projects, token, canEdit, onProjectsChange, onReloadPro
             <h1>Projects</h1>
             <p>Open one project to enter its dashboard and load only that project workspace.</p>
           </div>
+          {canEdit && <button type="button" onClick={() => setEditing(!editing)}>{editing ? "Done" : "Edit"}</button>}
         </div>
-        {canEdit && (
+        {editing && canEdit && (
           <form className="project-form" onSubmit={createProject}>
             <label className="compact-field">
               <span>Name</span>
@@ -1254,21 +1256,21 @@ function ProjectPortal({ projects, token, canEdit, onProjectsChange, onReloadPro
                 return (
                   <Fragment key={project.id}>
                   <tr>
-                    <td>{canEdit ? <input value={edit.name || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, name: event.target.value } })} /> : project.name}</td>
-                    <td>{canEdit ? <input value={edit.description || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, description: event.target.value } })} /> : project.description}</td>
-                    <td>{canEdit ? <input type="date" value={edit.start_date || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, start_date: event.target.value } })} /> : shortDate(project.start_date)}</td>
-                    <td>{canEdit ? <input type="date" value={edit.end_date || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, end_date: event.target.value } })} /> : shortDate(project.end_date)}</td>
-                    <td>{canEdit ? <input type="number" min="0" step="0.01" value={edit.budget || 0} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, budget: event.target.value } })} /> : money(project.budget)}</td>
+                    <td>{editing ? <input value={edit.name || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, name: event.target.value } })} /> : project.name}</td>
+                    <td>{editing ? <input value={edit.description || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, description: event.target.value } })} /> : project.description}</td>
+                    <td>{editing ? <input type="date" value={edit.start_date || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, start_date: event.target.value } })} /> : shortDate(project.start_date)}</td>
+                    <td>{editing ? <input type="date" value={edit.end_date || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, end_date: event.target.value } })} /> : shortDate(project.end_date)}</td>
+                    <td>{editing ? <input type="number" min="0" step="0.01" value={edit.budget || 0} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, budget: event.target.value } })} /> : money(project.budget)}</td>
                     <td className="row-actions">
                       <button type="button" onClick={() => onOpenProject(project.id)}>Open</button>
-                      {canEdit && <button type="button" onClick={() => saveProject(project)}>Save</button>}
-                      {canEdit && <button type="button" className="danger-button" onClick={() => {
+                      {editing && canEdit && <button type="button" onClick={() => saveProject(project)}>Save</button>}
+                      {editing && canEdit && <button type="button" className="danger-button" onClick={() => {
                         setDeleteProjectId(deleteProjectId === project.id ? null : project.id);
                         setDeleteDraft({ admin_password: "", confirm_password: "" });
                       }}>Delete</button>}
                     </td>
                   </tr>
-                  {deleteProjectId === project.id && (
+                  {editing && deleteProjectId === project.id && (
                     <tr className="delete-confirm-row">
                       <td colSpan="6">
                         <form className="delete-project-form" onSubmit={(event) => deleteProject(event, project)}>
