@@ -135,7 +135,7 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [authorized, setAuthorized] = useState(false);
   const [authError, setAuthError] = useState("");
-  const [activeTab, setActiveTab] = useState("Dashboard");
+  const [activeTab, setActiveTab] = useState("Projects");
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState(null);
   const [selectedTeam, setSelectedTeam] = useState("master");
@@ -343,17 +343,6 @@ export default function App() {
           </div>
           <div className="topbar-meta">
             <label>
-              Project
-              <select value={projectId || ""} onChange={(event) => {
-                setProjectId(Number(event.target.value));
-                setSelectedTeam("master");
-              }}>
-                {projects.map((project) => (
-                  <option value={project.id} key={project.id}>{project.name}</option>
-                ))}
-              </select>
-            </label>
-            <label>
               From
               <input type="date" value={timelineStart} onChange={(event) => setTimelineStart(event.target.value)} />
             </label>
@@ -377,11 +366,13 @@ export default function App() {
             currentProjectId={projectId}
             token={token}
             teams={data.teams}
+            selectedTeam={selectedTeam}
             canEdit={canEdit}
             onProjectsChange={setProjects}
             onProjectSelect={(id) => {
               setProjectId(id);
               setSelectedTeam("master");
+              setActiveTab("Dashboard");
             }}
             onRefresh={refresh}
           />
@@ -955,8 +946,9 @@ function Gantt({ tasks, teams, rangeStart, rangeEnd, onResetRange }) {
   );
 }
 
-function Projects({ projects, currentProjectId, token, teams, canEdit, onProjectsChange, onProjectSelect, onRefresh }) {
+function Projects({ projects, currentProjectId, token, teams, selectedTeam, canEdit, onProjectsChange, onProjectSelect, onRefresh }) {
   const currentProject = projects.find((project) => project.id === Number(currentProjectId));
+  const isMaster = selectedTeam === "master";
   const [projectEdits, setProjectEdits] = useState({});
   const [teamEdits, setTeamEdits] = useState({});
   const [projectDraft, setProjectDraft] = useState({
@@ -1045,7 +1037,7 @@ function Projects({ projects, currentProjectId, token, teams, canEdit, onProject
 
   async function createTeam(event) {
     event.preventDefault();
-    if (!canEdit || !currentProject || !teamDraft.code.trim() || !teamDraft.name.trim()) return;
+    if (!canEdit || !isMaster || !currentProject || !teamDraft.code.trim() || !teamDraft.name.trim()) return;
     await apiFetch("/teams", token, {
       method: "POST",
       body: JSON.stringify({
@@ -1062,7 +1054,7 @@ function Projects({ projects, currentProjectId, token, teams, canEdit, onProject
   }
 
   async function saveTeam(team) {
-    if (!canEdit) return;
+    if (!canEdit || !isMaster) return;
     const edit = teamEdits[team.id];
     await apiFetch(`/teams/${team.id}`, token, {
       method: "PATCH",
@@ -1078,7 +1070,7 @@ function Projects({ projects, currentProjectId, token, teams, canEdit, onProject
   }
 
   async function deleteTeam(team) {
-    if (!canEdit) return;
+    if (!canEdit || !isMaster) return;
     if (!window.confirm(`Remove team "${team.code}"? Existing records will become General records.`)) return;
     await apiFetch(`/teams/${team.id}`, token, { method: "DELETE" });
     await onRefresh();
@@ -1142,7 +1134,7 @@ function Projects({ projects, currentProjectId, token, teams, canEdit, onProject
         </div>
       </div>
 
-      <div className="section-card">
+      {isMaster && <div className="section-card">
         <div className="section-head">
           <h2>Teams</h2>
         </div>
@@ -1197,7 +1189,7 @@ function Projects({ projects, currentProjectId, token, teams, canEdit, onProject
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
     </section>
   );
 }
