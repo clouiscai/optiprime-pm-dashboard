@@ -1214,10 +1214,7 @@ function ProjectPortal({ projects, token, canEdit, onProjectsChange, onReloadPro
       <section className="stack">
         <div className="section-card">
         <div className="section-head">
-          <div>
-            <h1>Projects</h1>
-            <p>Open one project to enter its dashboard and load only that project workspace.</p>
-          </div>
+          <h1>Projects</h1>
           {canEdit && <button type="button" onClick={() => setEditing(!editing)}>{editing ? "Done" : "Edit"}</button>}
         </div>
         {editing && canEdit && (
