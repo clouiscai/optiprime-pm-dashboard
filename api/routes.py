@@ -32,6 +32,7 @@ from models.schemas import (
     LoginRequest,
     LoginResponse,
     ProjectCreate,
+    ProjectDeleteRequest,
     ProjectRead,
     ProjectUpdate,
     SponsorCreate,
@@ -49,7 +50,7 @@ from models.schemas import (
     UserRead,
     UserUpdate,
 )
-from services.auth import account_for_credentials, require_token, require_websocket_token, require_write_token, role_for_token
+from services.auth import account_for_credentials, expected_username, require_token, require_websocket_token, require_write_token, role_for_token
 from services.calculations import project_dashboard, task_with_open_blockers
 from services.realtime import manager
 
@@ -188,6 +189,35 @@ async def update_project(project_id: int, payload: ProjectUpdate, _: Writable, d
     db.refresh(project)
     await manager.broadcast("project.updated", {"project_id": project.id})
     return project
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+async def delete_project(project_id: int, payload: ProjectDeleteRequest, _: Writable, db: Session = Depends(get_db)):
+    project = get_project_or_404(db, project_id)
+    if payload.admin_password != payload.confirm_password:
+        raise HTTPException(400, "Admin passwords do not match")
+    account = account_for_credentials(expected_username(), payload.admin_password)
+    if not account or account["role"] != "admin":
+        raise HTTPException(403, "Project admin authentication failed")
+
+    team_ids = [team_id for (team_id,) in db.query(Team.id).filter(Team.project_id == project_id).all()]
+    task_ids = [task_id for (task_id,) in db.query(Task.id).filter(Task.project_id == project_id).all()]
+    bom_item_ids = [item_id for (item_id,) in db.query(BOMItem.id).filter(BOMItem.project_id == project_id).all()]
+
+    if task_ids:
+        db.query(Blocker).filter(Blocker.task_id.in_(task_ids)).delete(synchronize_session=False)
+        db.query(TaskAuditLog).filter(TaskAuditLog.task_id.in_(task_ids)).delete(synchronize_session=False)
+    if bom_item_ids:
+        db.query(BOMVersion).filter(BOMVersion.bom_item_id.in_(bom_item_ids)).delete(synchronize_session=False)
+    if team_ids:
+        db.query(User).filter(User.team_id.in_(team_ids)).delete(synchronize_session=False)
+
+    for model in (Invoice, Asset, Sponsor, BudgetLog, BOMItem, Task, Team):
+        db.query(model).filter(model.project_id == project_id).delete(synchronize_session=False)
+    db.delete(project)
+    db.commit()
+    await manager.broadcast("project.deleted", {"project_id": project_id})
+    return Response(status_code=204)
 
 
 @router.get("/projects/{project_id}/teams", response_model=list[TeamRead])
@@ -803,8 +833,11 @@ async def delete_asset(asset_id: int, _: Writable, db: Session = Depends(get_db)
 
 
 @router.get("/users", response_model=list[UserRead])
-def list_users(_: Protected, team_id: int | None = None, db: Session = Depends(get_db)):
+def list_users(_: Protected, project_id: int | None = None, team_id: int | None = None, db: Session = Depends(get_db)):
     query = db.query(User)
+    if project_id:
+        get_project_or_404(db, project_id)
+        query = query.join(Team, User.team_id == Team.id).filter(Team.project_id == project_id)
     if team_id:
         query = query.filter(User.team_id == team_id)
     return query.order_by(User.name).all()

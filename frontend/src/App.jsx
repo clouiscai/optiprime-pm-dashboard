@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import optiPrimeLogo from "./assets/OptiPrime_logo_blackbg.jpg";
 import { REALTIME_ENABLED, apiFetch, downloadCsv, getApiBase, getWsUrl } from "./api";
 
-const tabs = ["Dashboard", "Projects", "Tasks", "Kanban", "Gantt", "BOM/Budget", "Equipments/Asset", "Members", "Sponsors", "Blockers"];
+const tabs = ["Dashboard", "Tasks", "Kanban", "Gantt", "BOM/Budget", "Equipments/Asset", "Members", "Sponsors", "Blockers"];
 const statusColumns = [
   ["todo", "To Do"],
   ["in_progress", "In Progress"],
@@ -135,7 +135,7 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [authorized, setAuthorized] = useState(false);
   const [authError, setAuthError] = useState("");
-  const [activeTab, setActiveTab] = useState("Projects");
+  const [activeTab, setActiveTab] = useState("Dashboard");
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState(null);
   const [selectedTeam, setSelectedTeam] = useState("master");
@@ -155,58 +155,68 @@ export default function App() {
     setTimelineEnd(currentProject.end_date || today);
   }, [currentProject]);
 
-  const refresh = useCallback(async (scope = "all") => {
+  const refresh = useCallback(async (scope = activeTab) => {
     if (!projectId || !authorized) return;
     setBusy(true);
     try {
       const query = teamQuery(selectedTeam);
-      if (scope === "tasks") {
-        const [tasks, blockers] = await Promise.all([
-          apiFetch(`/projects/${projectId}/tasks${query}`, token),
-          apiFetch(`/projects/${projectId}/blockers${query}`, token),
-        ]);
-        setData((current) => ({
-          ...current,
-          tasks: Array.isArray(tasks) ? tasks : [],
-          blockers: Array.isArray(blockers) ? blockers : [],
-        }));
-        return;
+      const normalizedScope = scope === "all" ? activeTab : scope;
+      const requests = {
+        teams: apiFetch(`/projects/${projectId}/teams`, token),
+        dashboard: apiFetch(`/projects/${projectId}/dashboard${query}`, token),
+      };
+      if (["Dashboard", "Tasks", "Kanban", "Gantt", "Blockers", "tasks"].includes(normalizedScope)) {
+        requests.tasks = apiFetch(`/projects/${projectId}/tasks${query}`, token);
       }
-      const [teams, dashboard, tasks, blockers, bom, budget, invoices, sponsors, assets, users] = await Promise.all([
-        apiFetch(`/projects/${projectId}/teams`, token),
-        apiFetch(`/projects/${projectId}/dashboard${query}`, token),
-        apiFetch(`/projects/${projectId}/tasks${query}`, token),
-        apiFetch(`/projects/${projectId}/blockers${query}`, token),
-        apiFetch(`/projects/${projectId}/bom${query}`, token),
-        apiFetch(`/projects/${projectId}/budget${query}`, token),
-        apiFetch(`/projects/${projectId}/invoices`, token),
-        apiFetch(`/projects/${projectId}/sponsors`, token),
-        apiFetch(`/projects/${projectId}/assets${query}`, token),
-        apiFetch("/users", token),
-      ]);
-      setData({
-        teams: Array.isArray(teams) ? teams : [],
-        dashboard,
-        tasks: Array.isArray(tasks) ? tasks : [],
-        blockers: Array.isArray(blockers) ? blockers : [],
-        bom: Array.isArray(bom) ? bom : [],
-        budget: Array.isArray(budget) ? budget : [],
-        invoices: Array.isArray(invoices) ? invoices : [],
-        sponsors: Array.isArray(sponsors) ? sponsors : [],
-        assets: Array.isArray(assets) ? assets : [],
-        users: Array.isArray(users) ? users : [],
-      });
+      if (["Dashboard", "Tasks", "Blockers", "tasks"].includes(normalizedScope)) {
+        requests.blockers = apiFetch(`/projects/${projectId}/blockers${query}`, token);
+      }
+      if (["Tasks", "Members"].includes(normalizedScope)) {
+        requests.users = apiFetch(`/users?project_id=${projectId}${selectedTeam === "master" ? "" : `&team_id=${selectedTeam}`}`, token);
+      }
+      if (normalizedScope === "BOM/Budget") {
+        requests.bom = apiFetch(`/projects/${projectId}/bom${query}`, token);
+        requests.budget = apiFetch(`/projects/${projectId}/budget${query}`, token);
+        requests.invoices = apiFetch(`/projects/${projectId}/invoices`, token);
+      }
+      if (normalizedScope === "Equipments/Asset") {
+        requests.assets = apiFetch(`/projects/${projectId}/assets${query}`, token);
+      }
+      if (normalizedScope === "Sponsors") {
+        requests.sponsors = apiFetch(`/projects/${projectId}/sponsors`, token);
+        requests.bom = apiFetch(`/projects/${projectId}/bom${query}`, token);
+        requests.budget = apiFetch(`/projects/${projectId}/budget${query}`, token);
+        requests.assets = apiFetch(`/projects/${projectId}/assets${query}`, token);
+      }
+
+      const entries = await Promise.all(Object.entries(requests).map(async ([key, request]) => [key, await request]));
+      const updates = Object.fromEntries(entries);
+      setData((current) => ({
+        ...current,
+        teams: Array.isArray(updates.teams) ? updates.teams : current.teams,
+        dashboard: updates.dashboard || current.dashboard,
+        tasks: Array.isArray(updates.tasks) ? updates.tasks : current.tasks,
+        blockers: Array.isArray(updates.blockers) ? updates.blockers : current.blockers,
+        bom: Array.isArray(updates.bom) ? updates.bom : current.bom,
+        budget: Array.isArray(updates.budget) ? updates.budget : current.budget,
+        invoices: Array.isArray(updates.invoices) ? updates.invoices : current.invoices,
+        sponsors: Array.isArray(updates.sponsors) ? updates.sponsors : current.sponsors,
+        assets: Array.isArray(updates.assets) ? updates.assets : current.assets,
+        users: Array.isArray(updates.users) ? updates.users : current.users,
+      }));
     } catch (error) {
       setToast(error.message);
     } finally {
       setBusy(false);
     }
-  }, [authorized, projectId, selectedTeam, token]);
+  }, [activeTab, authorized, projectId, selectedTeam, token]);
 
   async function loadWorkspace(nextToken, nextRole = "admin") {
     const loadedProjects = await apiFetch("/projects", nextToken);
     setProjects(loadedProjects);
-    setProjectId(loadedProjects[0]?.id || null);
+    setProjectId(null);
+    setSelectedTeam("master");
+    setActiveTab("Dashboard");
     setToken(nextToken);
     setRole(nextRole);
     localStorage.setItem("optiprime_token", nextToken);
@@ -286,6 +296,25 @@ export default function App() {
     setPassword("");
   }
 
+  async function reloadProjects() {
+    const loadedProjects = await apiFetch("/projects", token);
+    setProjects(Array.isArray(loadedProjects) ? loadedProjects : []);
+    return loadedProjects;
+  }
+
+  function openProject(id) {
+    setProjectId(id);
+    setSelectedTeam("master");
+    setActiveTab("Dashboard");
+    setData({ dashboard: null, tasks: [], blockers: [], bom: [], budget: [], invoices: [], sponsors: [], assets: [], users: [], teams: [] });
+  }
+
+  function closeProject() {
+    setProjectId(null);
+    setSelectedTeam("master");
+    setActiveTab("Dashboard");
+  }
+
   if (!authorized) {
     return (
       <main className="login-shell">
@@ -307,6 +336,20 @@ export default function App() {
     );
   }
 
+  if (!projectId) {
+    return (
+      <ProjectPortal
+        projects={projects}
+        token={token}
+        canEdit={canEdit}
+        onProjectsChange={setProjects}
+        onReloadProjects={reloadProjects}
+        onOpenProject={openProject}
+        onLogout={logout}
+      />
+    );
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -317,6 +360,7 @@ export default function App() {
             <span>{canEdit ? "Admin" : "View only"}</span>
           </div>
         </div>
+        <button className="project-exit-button" onClick={closeProject}>Projects</button>
         <div className="team-switcher">
           <button className={selectedTeam === "master" ? "active" : ""} onClick={() => setSelectedTeam("master")}>Master</button>
           {data.teams.map((team) => (
@@ -359,21 +403,15 @@ export default function App() {
           </button>
         )}
 
-        {activeTab === "Dashboard" && <Dashboard dashboard={data.dashboard} tasks={data.tasks} selectedTeam={selectedTeam} />}
-        {activeTab === "Projects" && (
-          <Projects
-            projects={projects}
-            currentProjectId={projectId}
-            token={token}
+        {activeTab === "Dashboard" && (
+          <Dashboard
+            dashboard={data.dashboard}
+            tasks={data.tasks}
             teams={data.teams}
+            projectId={projectId}
+            token={token}
             selectedTeam={selectedTeam}
             canEdit={canEdit}
-            onProjectsChange={setProjects}
-            onProjectSelect={(id) => {
-              setProjectId(id);
-              setSelectedTeam("master");
-              setActiveTab("Dashboard");
-            }}
             onRefresh={refresh}
           />
         )}
@@ -456,7 +494,7 @@ export default function App() {
   );
 }
 
-function Dashboard({ dashboard, tasks, selectedTeam }) {
+function Dashboard({ dashboard, tasks, teams, projectId, token, selectedTeam, canEdit, onRefresh }) {
   if (!dashboard) return null;
   const overdue = tasks.filter((task) => task.due_date && task.due_date < today && task.status !== "done");
   return (
@@ -481,6 +519,9 @@ function Dashboard({ dashboard, tasks, selectedTeam }) {
             </article>
           ))}
         </div>
+      )}
+      {selectedTeam === "master" && (
+        <TeamSetup projectId={projectId} token={token} teams={teams} canEdit={canEdit} onRefresh={onRefresh} />
       )}
       <div className="dashboard-band">
         <div>
@@ -946,23 +987,147 @@ function Gantt({ tasks, teams, rangeStart, rangeEnd, onResetRange }) {
   );
 }
 
-function Projects({ projects, currentProjectId, token, teams, selectedTeam, canEdit, onProjectsChange, onProjectSelect, onRefresh }) {
-  const currentProject = projects.find((project) => project.id === Number(currentProjectId));
-  const isMaster = selectedTeam === "master";
-  const [projectEdits, setProjectEdits] = useState({});
+function TeamSetup({ projectId, token, teams, canEdit, onRefresh }) {
+  const [expanded, setExpanded] = useState(false);
   const [teamEdits, setTeamEdits] = useState({});
-  const [projectDraft, setProjectDraft] = useState({
-    name: "",
-    description: "",
-    start_date: today,
-    end_date: today,
-    budget: 0,
-  });
   const [teamDraft, setTeamDraft] = useState({
     code: "",
     name: "",
     domain: "",
     description: "",
+    budget: 0,
+  });
+
+  useEffect(() => {
+    const nextTeams = {};
+    teams.forEach((team) => {
+      nextTeams[team.id] = {
+        code: team.code || "",
+        name: team.name || "",
+        domain: team.domain || "",
+        description: team.description || "",
+        budget: team.budget || 0,
+      };
+    });
+    setTeamEdits(nextTeams);
+  }, [teams]);
+
+  async function createTeam(event) {
+    event.preventDefault();
+    if (!canEdit || !projectId || !teamDraft.code.trim() || !teamDraft.name.trim()) return;
+    await apiFetch("/teams", token, {
+      method: "POST",
+      body: JSON.stringify({
+        project_id: projectId,
+        code: teamDraft.code.trim(),
+        name: teamDraft.name.trim(),
+        domain: teamDraft.domain.trim() || teamDraft.name.trim(),
+        description: teamDraft.description.trim(),
+        budget: Number(teamDraft.budget || 0),
+      }),
+    });
+    setTeamDraft({ code: "", name: "", domain: "", description: "", budget: 0 });
+    await onRefresh("Dashboard");
+  }
+
+  async function saveTeam(team) {
+    if (!canEdit) return;
+    const edit = teamEdits[team.id];
+    await apiFetch(`/teams/${team.id}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({
+        code: edit.code.trim(),
+        name: edit.name.trim(),
+        domain: edit.domain.trim(),
+        description: edit.description.trim(),
+        budget: Number(edit.budget || 0),
+      }),
+    });
+    await onRefresh("Dashboard");
+  }
+
+  async function deleteTeam(team) {
+    if (!canEdit) return;
+    if (!window.confirm(`Remove team "${team.code}"? Existing records will become General records.`)) return;
+    await apiFetch(`/teams/${team.id}`, token, { method: "DELETE" });
+    await onRefresh("Dashboard");
+  }
+
+  return (
+    <div className="section-card team-setup-card">
+      <div className="section-head">
+        <div>
+          <h2>Teams</h2>
+          <p>Teams added here inherit the same Tasks, Kanban, Gantt, BOM/Budget, Members, Sponsors, Blockers, and Asset workflows.</p>
+        </div>
+        {canEdit && <button type="button" onClick={() => setExpanded(!expanded)}>{expanded ? "Close" : "Add Team"}</button>}
+      </div>
+      {expanded && canEdit && (
+        <>
+          <form className="team-form" onSubmit={createTeam}>
+            <label className="compact-field">
+              <span>Code</span>
+              <input placeholder="UAV" value={teamDraft.code} onChange={(event) => setTeamDraft({ ...teamDraft, code: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Name</span>
+              <input placeholder="Team name" value={teamDraft.name} onChange={(event) => setTeamDraft({ ...teamDraft, name: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Domain</span>
+              <input placeholder="Domain" value={teamDraft.domain} onChange={(event) => setTeamDraft({ ...teamDraft, domain: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Budget</span>
+              <input type="number" min="0" step="0.01" value={teamDraft.budget} onChange={(event) => setTeamDraft({ ...teamDraft, budget: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Description</span>
+              <input placeholder="Description" value={teamDraft.description} onChange={(event) => setTeamDraft({ ...teamDraft, description: event.target.value })} />
+            </label>
+            <button>Add Team</button>
+          </form>
+          <div className="table-wrap">
+            <table className="settings-table">
+              <thead>
+                <tr><th>Code</th><th>Name</th><th>Domain</th><th>Budget</th><th>Description</th><th></th></tr>
+              </thead>
+              <tbody>
+                {teams.map((team) => {
+                  const edit = teamEdits[team.id] || team;
+                  return (
+                    <tr key={team.id}>
+                      <td><input value={edit.code || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, code: event.target.value } })} /></td>
+                      <td><input value={edit.name || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, name: event.target.value } })} /></td>
+                      <td><input value={edit.domain || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, domain: event.target.value } })} /></td>
+                      <td><input type="number" min="0" step="0.01" value={edit.budget || 0} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, budget: event.target.value } })} /></td>
+                      <td><input value={edit.description || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, description: event.target.value } })} /></td>
+                      <td className="row-actions">
+                        <button type="button" onClick={() => saveTeam(team)}>Save</button>
+                        <button type="button" className="danger-button" onClick={() => deleteTeam(team)}>Remove</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {teams.length === 0 && <tr><td colSpan="6">No teams yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProjectPortal({ projects, token, canEdit, onProjectsChange, onReloadProjects, onOpenProject, onLogout }) {
+  const [projectEdits, setProjectEdits] = useState({});
+  const [deleteProjectId, setDeleteProjectId] = useState(null);
+  const [deleteDraft, setDeleteDraft] = useState({ admin_password: "", confirm_password: "" });
+  const [projectDraft, setProjectDraft] = useState({
+    name: "",
+    description: "",
+    start_date: today,
+    end_date: today,
     budget: 0,
   });
 
@@ -980,22 +1145,8 @@ function Projects({ projects, currentProjectId, token, teams, selectedTeam, canE
     setProjectEdits(nextProjects);
   }, [projects]);
 
-  useEffect(() => {
-    const nextTeams = {};
-    teams.forEach((team) => {
-      nextTeams[team.id] = {
-        code: team.code || "",
-        name: team.name || "",
-        domain: team.domain || "",
-        description: team.description || "",
-        budget: team.budget || 0,
-      };
-    });
-    setTeamEdits(nextTeams);
-  }, [teams]);
-
   async function reloadProjects() {
-    const loadedProjects = await apiFetch("/projects", token);
+    const loadedProjects = await onReloadProjects();
     onProjectsChange(Array.isArray(loadedProjects) ? loadedProjects : []);
     return loadedProjects;
   }
@@ -1013,9 +1164,8 @@ function Projects({ projects, currentProjectId, token, teams, selectedTeam, canE
       }),
     });
     const loadedProjects = await reloadProjects();
-    onProjectSelect(created?.id || loadedProjects?.at(-1)?.id || currentProjectId);
+    onOpenProject(created?.id || loadedProjects?.at(-1)?.id || null);
     setProjectDraft({ name: "", description: "", start_date: today, end_date: today, budget: 0 });
-    await onRefresh();
   }
 
   async function saveProject(project) {
@@ -1032,55 +1182,44 @@ function Projects({ projects, currentProjectId, token, teams, selectedTeam, canE
       }),
     });
     await reloadProjects();
-    await onRefresh();
   }
 
-  async function createTeam(event) {
+  async function deleteProject(event, project) {
     event.preventDefault();
-    if (!canEdit || !isMaster || !currentProject || !teamDraft.code.trim() || !teamDraft.name.trim()) return;
-    await apiFetch("/teams", token, {
-      method: "POST",
-      body: JSON.stringify({
-        project_id: currentProject.id,
-        code: teamDraft.code.trim(),
-        name: teamDraft.name.trim(),
-        domain: teamDraft.domain.trim() || teamDraft.name.trim(),
-        description: teamDraft.description.trim(),
-        budget: Number(teamDraft.budget || 0),
-      }),
+    if (!canEdit || !project) return;
+    if (deleteDraft.admin_password !== deleteDraft.confirm_password) {
+      window.alert("Admin passwords do not match.");
+      return;
+    }
+    if (!window.confirm(`Permanently delete "${project.name}" and all of its project data?`)) return;
+    await apiFetch(`/projects/${project.id}`, token, {
+      method: "DELETE",
+      body: JSON.stringify(deleteDraft),
     });
-    setTeamDraft({ code: "", name: "", domain: "", description: "", budget: 0 });
-    await onRefresh();
-  }
-
-  async function saveTeam(team) {
-    if (!canEdit || !isMaster) return;
-    const edit = teamEdits[team.id];
-    await apiFetch(`/teams/${team.id}`, token, {
-      method: "PATCH",
-      body: JSON.stringify({
-        code: edit.code.trim(),
-        name: edit.name.trim(),
-        domain: edit.domain.trim(),
-        description: edit.description.trim(),
-        budget: Number(edit.budget || 0),
-      }),
-    });
-    await onRefresh();
-  }
-
-  async function deleteTeam(team) {
-    if (!canEdit || !isMaster) return;
-    if (!window.confirm(`Remove team "${team.code}"? Existing records will become General records.`)) return;
-    await apiFetch(`/teams/${team.id}`, token, { method: "DELETE" });
-    await onRefresh();
+    setDeleteProjectId(null);
+    setDeleteDraft({ admin_password: "", confirm_password: "" });
+    await reloadProjects();
   }
 
   return (
-    <section className="stack">
-      <div className="section-card">
+    <main className="project-portal">
+      <header className="project-portal-head">
+        <div className="brand">
+          <img className="brand-logo" src={optiPrimeLogo} alt="OptiPrime" />
+          <div>
+            <strong>OptiPrime</strong>
+            <span>Project selection</span>
+          </div>
+        </div>
+        <button className="signout-button" onClick={onLogout}>Log Out</button>
+      </header>
+      <section className="stack">
+        <div className="section-card">
         <div className="section-head">
-          <h2>Projects</h2>
+          <div>
+            <h1>Projects</h1>
+            <p>Open one project to enter its dashboard and load only that project workspace.</p>
+          </div>
         </div>
         {canEdit && (
           <form className="project-form" onSubmit={createProject}>
@@ -1116,81 +1255,50 @@ function Projects({ projects, currentProjectId, token, teams, selectedTeam, canE
               {projects.map((project) => {
                 const edit = projectEdits[project.id] || project;
                 return (
-                  <tr key={project.id} className={project.id === Number(currentProjectId) ? "selected-row" : ""}>
+                  <Fragment key={project.id}>
+                  <tr>
                     <td>{canEdit ? <input value={edit.name || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, name: event.target.value } })} /> : project.name}</td>
                     <td>{canEdit ? <input value={edit.description || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, description: event.target.value } })} /> : project.description}</td>
                     <td>{canEdit ? <input type="date" value={edit.start_date || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, start_date: event.target.value } })} /> : shortDate(project.start_date)}</td>
                     <td>{canEdit ? <input type="date" value={edit.end_date || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, end_date: event.target.value } })} /> : shortDate(project.end_date)}</td>
                     <td>{canEdit ? <input type="number" min="0" step="0.01" value={edit.budget || 0} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, budget: event.target.value } })} /> : money(project.budget)}</td>
                     <td className="row-actions">
-                      <button type="button" onClick={() => onProjectSelect(project.id)}>Open</button>
+                      <button type="button" onClick={() => onOpenProject(project.id)}>Open</button>
                       {canEdit && <button type="button" onClick={() => saveProject(project)}>Save</button>}
+                      {canEdit && <button type="button" className="danger-button" onClick={() => {
+                        setDeleteProjectId(deleteProjectId === project.id ? null : project.id);
+                        setDeleteDraft({ admin_password: "", confirm_password: "" });
+                      }}>Delete</button>}
                     </td>
                   </tr>
+                  {deleteProjectId === project.id && (
+                    <tr className="delete-confirm-row">
+                      <td colSpan="6">
+                        <form className="delete-project-form" onSubmit={(event) => deleteProject(event, project)}>
+                          <label className="compact-field">
+                            <span>Admin password</span>
+                            <input type="password" value={deleteDraft.admin_password} onChange={(event) => setDeleteDraft({ ...deleteDraft, admin_password: event.target.value })} />
+                          </label>
+                          <label className="compact-field">
+                            <span>Confirm password</span>
+                            <input type="password" value={deleteDraft.confirm_password} onChange={(event) => setDeleteDraft({ ...deleteDraft, confirm_password: event.target.value })} />
+                          </label>
+                          <button className="danger-button">Confirm Delete</button>
+                          <button type="button" onClick={() => setDeleteProjectId(null)}>Cancel</button>
+                        </form>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
+              {projects.length === 0 && <tr><td colSpan="6">No projects yet.</td></tr>}
             </tbody>
           </table>
         </div>
       </div>
-
-      {isMaster && <div className="section-card">
-        <div className="section-head">
-          <h2>Teams</h2>
-        </div>
-        {canEdit && (
-          <form className="team-form" onSubmit={createTeam}>
-            <label className="compact-field">
-              <span>Code</span>
-              <input placeholder="UAV" value={teamDraft.code} onChange={(event) => setTeamDraft({ ...teamDraft, code: event.target.value })} />
-            </label>
-            <label className="compact-field">
-              <span>Name</span>
-              <input placeholder="Team name" value={teamDraft.name} onChange={(event) => setTeamDraft({ ...teamDraft, name: event.target.value })} />
-            </label>
-            <label className="compact-field">
-              <span>Domain</span>
-              <input placeholder="Domain" value={teamDraft.domain} onChange={(event) => setTeamDraft({ ...teamDraft, domain: event.target.value })} />
-            </label>
-            <label className="compact-field">
-              <span>Budget</span>
-              <input type="number" min="0" step="0.01" value={teamDraft.budget} onChange={(event) => setTeamDraft({ ...teamDraft, budget: event.target.value })} />
-            </label>
-            <label className="compact-field">
-              <span>Description</span>
-              <input placeholder="Description" value={teamDraft.description} onChange={(event) => setTeamDraft({ ...teamDraft, description: event.target.value })} />
-            </label>
-            <button>Add Team</button>
-          </form>
-        )}
-        <div className="table-wrap">
-          <table className="settings-table">
-            <thead>
-              <tr><th>Code</th><th>Name</th><th>Domain</th><th>Budget</th><th>Description</th><th></th></tr>
-            </thead>
-            <tbody>
-              {teams.map((team) => {
-                const edit = teamEdits[team.id] || team;
-                return (
-                  <tr key={team.id}>
-                    <td>{canEdit ? <input value={edit.code || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, code: event.target.value } })} /> : team.code}</td>
-                    <td>{canEdit ? <input value={edit.name || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, name: event.target.value } })} /> : team.name}</td>
-                    <td>{canEdit ? <input value={edit.domain || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, domain: event.target.value } })} /> : team.domain}</td>
-                    <td>{canEdit ? <input type="number" min="0" step="0.01" value={edit.budget || 0} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, budget: event.target.value } })} /> : money(team.budget)}</td>
-                    <td>{canEdit ? <input value={edit.description || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, description: event.target.value } })} /> : team.description}</td>
-                    <td className="row-actions">
-                      {canEdit && <button type="button" onClick={() => saveTeam(team)}>Save</button>}
-                      {canEdit && <button type="button" className="danger-button" onClick={() => deleteTeam(team)}>Remove</button>}
-                    </td>
-                  </tr>
-                );
-              })}
-              {teams.length === 0 && <tr><td colSpan="6">No teams yet.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>}
-    </section>
+      </section>
+    </main>
   );
 }
 

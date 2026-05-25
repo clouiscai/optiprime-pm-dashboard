@@ -24,6 +24,11 @@ class ProjectUpdate(BaseModel):
     budget: float | None = None
 
 
+class ProjectDeleteRequest(BaseModel):
+    admin_password: str
+    confirm_password: str
+
+
 class ProjectRead(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 
