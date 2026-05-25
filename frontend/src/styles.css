@@ -222,6 +222,79 @@ nav button:hover {
   padding: 24px;
 }
 
+.section-loading-region {
+  position: relative;
+  min-height: 120px;
+}
+
+.skunk-loader {
+  position: sticky;
+  top: 12px;
+  z-index: 8;
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) auto;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 44px;
+  margin: 0 0 12px auto;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 59, 59, 0.36);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 24px rgba(255, 59, 59, 0.14);
+  color: #991b1b;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.skunk-runway {
+  position: relative;
+  height: 26px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 59, 59, 0.08), rgba(255, 59, 59, 0.2), rgba(255, 59, 59, 0.08));
+}
+
+.skunk-runway::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 5px;
+  border-bottom: 2px dashed rgba(255, 59, 59, 0.42);
+}
+
+.skunk-runway img {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  width: 24px;
+  height: 20px;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(25%) sepia(91%) saturate(3762%) hue-rotate(348deg) brightness(104%) contrast(100%);
+  animation: skunk-run 1.05s linear infinite, skunk-bob 0.32s ease-in-out infinite alternate;
+}
+
+@keyframes skunk-run {
+  from {
+    transform: translateX(-30px);
+  }
+  to {
+    transform: translateX(220px);
+  }
+}
+
+@keyframes skunk-bob {
+  from {
+    margin-top: 0;
+  }
+  to {
+    margin-top: 3px;
+  }
+}
+
 .topbar {
   display: flex;
   align-items: flex-end;

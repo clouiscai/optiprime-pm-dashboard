@@ -128,6 +128,17 @@ function isDescendantTask(candidate, parentId, tasks) {
   return false;
 }
 
+function LoadingSkunk({ label = "Loading" }) {
+  return (
+    <div className="skunk-loader" role="status" aria-live="polite">
+      <div className="skunk-runway">
+        <img src={optiPrimeLogo} alt="" />
+      </div>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("optiprime_token") || "");
   const [role, setRole] = useState(localStorage.getItem("optiprime_role") || "admin");
@@ -141,6 +152,7 @@ export default function App() {
   const [selectedTeam, setSelectedTeam] = useState("master");
   const [data, setData] = useState({ dashboard: null, tasks: [], blockers: [], bom: [], budget: [], invoices: [], sponsors: [], assets: [], users: [], teams: [] });
   const [busy, setBusy] = useState(false);
+  const [loadingSection, setLoadingSection] = useState("");
   const [toast, setToast] = useState("");
   const [timelineStart, setTimelineStart] = useState("");
   const [timelineEnd, setTimelineEnd] = useState("");
@@ -157,10 +169,11 @@ export default function App() {
 
   const refresh = useCallback(async (scope = activeTab) => {
     if (!projectId || !authorized) return;
+    const normalizedScope = scope === "all" ? activeTab : scope;
     setBusy(true);
+    setLoadingSection(normalizedScope);
     try {
       const query = teamQuery(selectedTeam);
-      const normalizedScope = scope === "all" ? activeTab : scope;
       const requests = {
         teams: apiFetch(`/projects/${projectId}/teams`, token),
         dashboard: apiFetch(`/projects/${projectId}/dashboard${query}`, token),
@@ -208,6 +221,7 @@ export default function App() {
       setToast(error.message);
     } finally {
       setBusy(false);
+      setLoadingSection("");
     }
   }, [activeTab, authorized, projectId, selectedTeam, token]);
 
@@ -297,9 +311,16 @@ export default function App() {
   }
 
   async function reloadProjects() {
-    const loadedProjects = await apiFetch("/projects", token);
-    setProjects(Array.isArray(loadedProjects) ? loadedProjects : []);
-    return loadedProjects;
+    setBusy(true);
+    setLoadingSection("Projects");
+    try {
+      const loadedProjects = await apiFetch("/projects", token);
+      setProjects(Array.isArray(loadedProjects) ? loadedProjects : []);
+      return loadedProjects;
+    } finally {
+      setBusy(false);
+      setLoadingSection("");
+    }
   }
 
   function openProject(id) {
@@ -346,6 +367,7 @@ export default function App() {
         onReloadProjects={reloadProjects}
         onOpenProject={openProject}
         onLogout={logout}
+        loading={busy && loadingSection === "Projects"}
       />
     );
   }
@@ -403,92 +425,95 @@ export default function App() {
           </button>
         )}
 
-        {activeTab === "Dashboard" && (
-          <Dashboard
-            dashboard={data.dashboard}
-            tasks={data.tasks}
-            teams={data.teams}
-            projectId={projectId}
-            token={token}
-            selectedTeam={selectedTeam}
-            canEdit={canEdit}
-            onRefresh={refresh}
-          />
-        )}
-        {activeTab === "Tasks" && (
-          <TasksView
-            projectId={projectId}
-            teamId={scopedTeamId}
-            selectedTeam={selectedTeam}
-            token={token}
-            tasks={data.tasks}
-            teams={data.teams}
-            users={data.users}
-            canEdit={canEdit}
-            onRefresh={refresh}
-            onPatchTask={patchTask}
-            onDeleteTask={deleteTask}
-          />
-        )}
-        {activeTab === "Kanban" && <Kanban tasks={data.tasks} teams={data.teams} canEdit={canEdit} onPatchTask={patchTask} />}
-        {activeTab === "Gantt" && <Gantt tasks={data.tasks} teams={data.teams} rangeStart={timelineStart} rangeEnd={timelineEnd} onResetRange={resetTimelineRange} />}
-        {activeTab === "BOM/Budget" && (
-          <BomBudget
-            projectId={projectId}
-            teamId={scopedTeamId}
-            selectedTeam={selectedTeam}
-            token={token}
-            teams={data.teams}
-            dashboard={data.dashboard}
-            bom={data.bom}
-            budget={data.budget}
-            invoices={data.invoices}
-            canEdit={canEdit}
-            onRefresh={refresh}
-          />
-        )}
-        {activeTab === "Equipments/Asset" && (
-          <Assets
-            projectId={projectId}
-            teamId={scopedTeamId}
-            selectedTeam={selectedTeam}
-            token={token}
-            teams={data.teams}
-            assets={data.assets}
-            canEdit={canEdit}
-            onRefresh={refresh}
-          />
-        )}
-        {activeTab === "Members" && (
-          <Members
-            teamId={scopedTeamId}
-            selectedTeam={selectedTeam}
-            token={token}
-            teams={data.teams}
-            users={data.users}
-            canEdit={canEdit}
-            onRefresh={refresh}
-          />
-        )}
-        {activeTab === "Sponsors" && (
-          <Sponsors
-            projectId={projectId}
-            teamId={scopedTeamId}
-            selectedTeam={selectedTeam}
-            token={token}
-            teams={data.teams}
-            sponsors={data.sponsors}
-            bom={data.bom}
-            budget={data.budget}
-            assets={data.assets}
-            dashboard={data.dashboard}
-            canEdit={canEdit}
-            onRefresh={refresh}
-          />
-        )}
-        {activeTab === "Blockers" && (
-          <Blockers token={token} blockers={data.blockers} tasks={data.tasks} canEdit={canEdit} onRefresh={refresh} />
-        )}
+        <div className="section-loading-region" aria-busy={busy}>
+          {busy && loadingSection && <LoadingSkunk label={`Loading ${loadingSection}`} />}
+          {activeTab === "Dashboard" && (
+            <Dashboard
+              dashboard={data.dashboard}
+              tasks={data.tasks}
+              teams={data.teams}
+              projectId={projectId}
+              token={token}
+              selectedTeam={selectedTeam}
+              canEdit={canEdit}
+              onRefresh={refresh}
+            />
+          )}
+          {activeTab === "Tasks" && (
+            <TasksView
+              projectId={projectId}
+              teamId={scopedTeamId}
+              selectedTeam={selectedTeam}
+              token={token}
+              tasks={data.tasks}
+              teams={data.teams}
+              users={data.users}
+              canEdit={canEdit}
+              onRefresh={refresh}
+              onPatchTask={patchTask}
+              onDeleteTask={deleteTask}
+            />
+          )}
+          {activeTab === "Kanban" && <Kanban tasks={data.tasks} teams={data.teams} canEdit={canEdit} onPatchTask={patchTask} />}
+          {activeTab === "Gantt" && <Gantt tasks={data.tasks} teams={data.teams} rangeStart={timelineStart} rangeEnd={timelineEnd} onResetRange={resetTimelineRange} />}
+          {activeTab === "BOM/Budget" && (
+            <BomBudget
+              projectId={projectId}
+              teamId={scopedTeamId}
+              selectedTeam={selectedTeam}
+              token={token}
+              teams={data.teams}
+              dashboard={data.dashboard}
+              bom={data.bom}
+              budget={data.budget}
+              invoices={data.invoices}
+              canEdit={canEdit}
+              onRefresh={refresh}
+            />
+          )}
+          {activeTab === "Equipments/Asset" && (
+            <Assets
+              projectId={projectId}
+              teamId={scopedTeamId}
+              selectedTeam={selectedTeam}
+              token={token}
+              teams={data.teams}
+              assets={data.assets}
+              canEdit={canEdit}
+              onRefresh={refresh}
+            />
+          )}
+          {activeTab === "Members" && (
+            <Members
+              teamId={scopedTeamId}
+              selectedTeam={selectedTeam}
+              token={token}
+              teams={data.teams}
+              users={data.users}
+              canEdit={canEdit}
+              onRefresh={refresh}
+            />
+          )}
+          {activeTab === "Sponsors" && (
+            <Sponsors
+              projectId={projectId}
+              teamId={scopedTeamId}
+              selectedTeam={selectedTeam}
+              token={token}
+              teams={data.teams}
+              sponsors={data.sponsors}
+              bom={data.bom}
+              budget={data.budget}
+              assets={data.assets}
+              dashboard={data.dashboard}
+              canEdit={canEdit}
+              onRefresh={refresh}
+            />
+          )}
+          {activeTab === "Blockers" && (
+            <Blockers token={token} blockers={data.blockers} tasks={data.tasks} canEdit={canEdit} onRefresh={refresh} />
+          )}
+        </div>
       </main>
     </div>
   );
@@ -1116,7 +1141,7 @@ function TeamSetup({ projectId, token, teams, canEdit, onRefresh }) {
   );
 }
 
-function ProjectPortal({ projects, token, canEdit, onProjectsChange, onReloadProjects, onOpenProject, onLogout }) {
+function ProjectPortal({ projects, token, canEdit, onProjectsChange, onReloadProjects, onOpenProject, onLogout, loading }) {
   const [editing, setEditing] = useState(false);
   const [projectEdits, setProjectEdits] = useState({});
   const [deleteProjectId, setDeleteProjectId] = useState(null);
@@ -1212,6 +1237,7 @@ function ProjectPortal({ projects, token, canEdit, onProjectsChange, onReloadPro
         <button className="signout-button" onClick={onLogout}>Log Out</button>
       </header>
       <section className="stack">
+        {loading && <LoadingSkunk label="Loading Projects" />}
         <div className="section-card">
         <div className="section-head">
           <h1>Projects</h1>
