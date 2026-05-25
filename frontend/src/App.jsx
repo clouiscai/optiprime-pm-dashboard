@@ -1056,65 +1056,62 @@ function TeamSetup({ projectId, token, teams, canEdit, onRefresh }) {
   return (
     <div className="section-card team-setup-card">
       <div className="section-head">
-        <div>
-          <h2>Teams</h2>
-          <p>Teams added here inherit the same Tasks, Kanban, Gantt, BOM/Budget, Members, Sponsors, Blockers, and Asset workflows.</p>
-        </div>
-        {canEdit && <button type="button" onClick={() => setExpanded(!expanded)}>{expanded ? "Close" : "Add Team"}</button>}
+        <h2>Teams</h2>
+        {canEdit && <button type="button" onClick={() => setExpanded(!expanded)}>{expanded ? "Done" : "Edit"}</button>}
       </div>
       {expanded && canEdit && (
-        <>
-          <form className="team-form" onSubmit={createTeam}>
-            <label className="compact-field">
-              <span>Code</span>
-              <input placeholder="UAV" value={teamDraft.code} onChange={(event) => setTeamDraft({ ...teamDraft, code: event.target.value })} />
-            </label>
-            <label className="compact-field">
-              <span>Name</span>
-              <input placeholder="Team name" value={teamDraft.name} onChange={(event) => setTeamDraft({ ...teamDraft, name: event.target.value })} />
-            </label>
-            <label className="compact-field">
-              <span>Domain</span>
-              <input placeholder="Domain" value={teamDraft.domain} onChange={(event) => setTeamDraft({ ...teamDraft, domain: event.target.value })} />
-            </label>
-            <label className="compact-field">
-              <span>Budget</span>
-              <input type="number" min="0" step="0.01" value={teamDraft.budget} onChange={(event) => setTeamDraft({ ...teamDraft, budget: event.target.value })} />
-            </label>
-            <label className="compact-field">
-              <span>Description</span>
-              <input placeholder="Description" value={teamDraft.description} onChange={(event) => setTeamDraft({ ...teamDraft, description: event.target.value })} />
-            </label>
-            <button>Add Team</button>
-          </form>
-          <div className="table-wrap">
-            <table className="settings-table">
-              <thead>
-                <tr><th>Code</th><th>Name</th><th>Domain</th><th>Budget</th><th>Description</th><th></th></tr>
-              </thead>
-              <tbody>
-                {teams.map((team) => {
-                  const edit = teamEdits[team.id] || team;
-                  return (
-                    <tr key={team.id}>
-                      <td><input value={edit.code || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, code: event.target.value } })} /></td>
-                      <td><input value={edit.name || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, name: event.target.value } })} /></td>
-                      <td><input value={edit.domain || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, domain: event.target.value } })} /></td>
-                      <td><input type="number" min="0" step="0.01" value={edit.budget || 0} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, budget: event.target.value } })} /></td>
-                      <td><input value={edit.description || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, description: event.target.value } })} /></td>
-                      <td className="row-actions">
-                        <button type="button" onClick={() => saveTeam(team)}>Save</button>
-                        <button type="button" className="danger-button" onClick={() => deleteTeam(team)}>Remove</button>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {teams.length === 0 && <tr><td colSpan="6">No teams yet.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </>
+        <form className="team-form" onSubmit={createTeam}>
+          <label className="compact-field">
+            <span>Code</span>
+            <input placeholder="UAV" value={teamDraft.code} onChange={(event) => setTeamDraft({ ...teamDraft, code: event.target.value })} />
+          </label>
+          <label className="compact-field">
+            <span>Name</span>
+            <input placeholder="Team name" value={teamDraft.name} onChange={(event) => setTeamDraft({ ...teamDraft, name: event.target.value })} />
+          </label>
+          <label className="compact-field">
+            <span>Domain</span>
+            <input placeholder="Domain" value={teamDraft.domain} onChange={(event) => setTeamDraft({ ...teamDraft, domain: event.target.value })} />
+          </label>
+          <label className="compact-field">
+            <span>Budget</span>
+            <input type="number" min="0" step="0.01" value={teamDraft.budget} onChange={(event) => setTeamDraft({ ...teamDraft, budget: event.target.value })} />
+          </label>
+          <label className="compact-field">
+            <span>Description</span>
+            <input placeholder="Description" value={teamDraft.description} onChange={(event) => setTeamDraft({ ...teamDraft, description: event.target.value })} />
+          </label>
+          <button>Add Team</button>
+        </form>
       )}
+      <div className="table-wrap">
+        <table className="settings-table">
+          <thead>
+            <tr><th>Code</th><th>Name</th><th>Domain</th><th>Budget</th><th>Description</th>{expanded && <th></th>}</tr>
+          </thead>
+          <tbody>
+            {teams.map((team) => {
+              const edit = teamEdits[team.id] || team;
+              return (
+                <tr key={team.id}>
+                  <td>{expanded ? <input value={edit.code || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, code: event.target.value } })} /> : team.code}</td>
+                  <td>{expanded ? <input value={edit.name || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, name: event.target.value } })} /> : team.name}</td>
+                  <td>{expanded ? <input value={edit.domain || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, domain: event.target.value } })} /> : team.domain}</td>
+                  <td>{expanded ? <input type="number" min="0" step="0.01" value={edit.budget || 0} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, budget: event.target.value } })} /> : money(team.budget)}</td>
+                  <td>{expanded ? <input value={edit.description || ""} onChange={(event) => setTeamEdits({ ...teamEdits, [team.id]: { ...edit, description: event.target.value } })} /> : team.description}</td>
+                  {expanded && (
+                    <td className="row-actions">
+                      <button type="button" onClick={() => saveTeam(team)}>Save</button>
+                      <button type="button" className="danger-button" onClick={() => deleteTeam(team)}>Remove</button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+            {teams.length === 0 && <tr><td colSpan={expanded ? "6" : "5"}>No teams yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
