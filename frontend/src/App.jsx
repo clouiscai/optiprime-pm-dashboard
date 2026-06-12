@@ -1827,6 +1827,7 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
 function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, history, onLoadHistory, onCloseHistory, onRefresh }) {
   const categoryOptionsId = `bom-category-options-${item.id}`;
   const [edit, setEdit] = useState({ team_id: item.team_id, category: item.category || "", name: item.name, quantity: item.quantity, unit_cost: item.unit_cost, sponsored_by: item.sponsored_by || "" });
+  const rowCanEdit = canEdit && !item.finalized;
 
   useEffect(() => {
     setEdit({ team_id: item.team_id, category: item.category || "", name: item.name, quantity: item.quantity, unit_cost: item.unit_cost, sponsored_by: item.sponsored_by || "" });
@@ -1853,6 +1854,17 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
     await onRefresh();
   }
 
+  async function toggleFinalized() {
+    if (item.finalized) {
+      if (!window.confirm(`Reopen BOM item "${item.name}" for editing?`)) return;
+      await apiFetch(`/bom/${item.id}/reopen`, token, { method: "POST" });
+    } else {
+      if (!window.confirm(`Finalise BOM item "${item.name}"? It will be shaded and locked until reopened.`)) return;
+      await apiFetch(`/bom/${item.id}/finalize`, token, { method: "POST" });
+    }
+    await onRefresh();
+  }
+
   async function rollback(versionId) {
     if (!window.confirm("Roll back this BOM item to the selected history version? This will replace the current values without creating a new version.")) return;
     await apiFetch(`/bom/${item.id}/rollback/${versionId}`, token, { method: "POST" });
@@ -1869,11 +1881,11 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
 
   return (
     <>
-      <tr>
+      <tr className={item.finalized ? "bom-finalized-row" : ""}>
         {isMaster && (
           <td>
             {expanded ? (
-              <select value={edit.team_id || ""} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, team_id: event.target.value ? Number(event.target.value) : null })}>
+              <select value={edit.team_id || ""} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, team_id: event.target.value ? Number(event.target.value) : null })}>
                 <option value="">General</option>
                 {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
               </select>
@@ -1886,19 +1898,20 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
               <datalist id={categoryOptionsId}>
                 {categories.map((category) => <option value={category} key={category} />)}
               </datalist>
-              <input list={categoryOptionsId} placeholder="Category" value={edit.category} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, category: event.target.value })} />
+              <input list={categoryOptionsId} placeholder="Category" value={edit.category} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, category: event.target.value })} />
             </>
           ) : item.category || "Uncategorized"}
         </td>
-        <td className="bom-item-col">{expanded ? <input value={edit.name} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, name: event.target.value })} /> : item.name}</td>
-        <td className="bom-qty-col">{expanded ? <input type="number" step="1" value={edit.quantity} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, quantity: event.target.value })} /> : item.quantity}</td>
-        <td className="bom-cost-col">{expanded ? <input type="number" step="0.01" value={edit.unit_cost} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, unit_cost: event.target.value })} /> : money(item.unit_cost)}</td>
+        <td className="bom-item-col">{expanded ? <input value={edit.name} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, name: event.target.value })} /> : item.name}</td>
+        <td className="bom-qty-col">{expanded ? <input type="number" step="1" value={edit.quantity} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, quantity: event.target.value })} /> : item.quantity}</td>
+        <td className="bom-cost-col">{expanded ? <input type="number" step="0.01" value={edit.unit_cost} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, unit_cost: event.target.value })} /> : money(item.unit_cost)}</td>
         <td className="bom-total-col">{money(item.total_cost)}</td>
-        <td className="bom-sponsor-col">{expanded ? <input placeholder="Sponsor" value={edit.sponsored_by} disabled={!canEdit} onChange={(event) => setEdit({ ...edit, sponsored_by: event.target.value })} /> : item.sponsored_by || "-"}</td>
-        {expanded && <td className="bom-version-col">v{item.version}</td>}
+        <td className="bom-sponsor-col">{expanded ? <input placeholder="Sponsor" value={edit.sponsored_by} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, sponsored_by: event.target.value })} /> : item.sponsored_by || "-"}</td>
+        {expanded && <td className="bom-version-col"><span className={item.finalized ? "version-finalized" : ""}>{item.finalized ? "V" : "v"}{item.version}</span></td>}
         {expanded && (
           <td className="row-actions bom-actions-col">
-            {canEdit && <button onClick={save}>Save</button>}
+            {rowCanEdit && <button onClick={save}>Save</button>}
+            {canEdit && <button className={item.finalized ? "" : "finalize-button"} onClick={toggleFinalized}>{item.finalized ? "Reopen" : "Finalise"}</button>}
             <button onClick={() => onLoadHistory(item.id)}>{history ? "Refresh" : "History"}</button>
             {canEdit && <button className="danger-button" onClick={removeItem}>Delete</button>}
           </td>

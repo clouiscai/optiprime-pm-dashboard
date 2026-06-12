@@ -139,6 +139,7 @@ class BOMItemBase(BaseModel):
     quantity: float = 1
     unit_cost: float = 0
     sponsored_by: str = ""
+    finalized: bool = False
 
 
 class BOMItemCreate(BOMItemBase):
@@ -152,6 +153,7 @@ class BOMItemUpdate(BaseModel):
     quantity: float | None = None
     unit_cost: float | None = None
     sponsored_by: str | None = None
+    finalized: bool | None = None
     note: str = "Updated from RobotX web app"
 
 

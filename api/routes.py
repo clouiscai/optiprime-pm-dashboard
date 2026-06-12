@@ -536,6 +536,32 @@ async def update_bom_item(item_id: int, payload: BOMItemUpdate, _: Writable, db:
     return item
 
 
+@router.post("/bom/{item_id}/finalize", response_model=BOMItemRead)
+async def finalize_bom_item(item_id: int, _: Writable, db: Session = Depends(get_db)):
+    item = db.get(BOMItem, item_id)
+    if not item:
+        raise HTTPException(404, "BOM item not found")
+    item.finalized = True
+    item.last_updated = datetime.utcnow()
+    db.commit()
+    db.refresh(item)
+    await manager.broadcast("bom.updated", {"project_id": item.project_id, "bom_item_id": item.id})
+    return item
+
+
+@router.post("/bom/{item_id}/reopen", response_model=BOMItemRead)
+async def reopen_bom_item(item_id: int, _: Writable, db: Session = Depends(get_db)):
+    item = db.get(BOMItem, item_id)
+    if not item:
+        raise HTTPException(404, "BOM item not found")
+    item.finalized = False
+    item.last_updated = datetime.utcnow()
+    db.commit()
+    db.refresh(item)
+    await manager.broadcast("bom.updated", {"project_id": item.project_id, "bom_item_id": item.id})
+    return item
+
+
 @router.get("/bom/{item_id}/versions", response_model=list[BOMVersionRead])
 def bom_versions(item_id: int, _: Protected, db: Session = Depends(get_db)):
     return db.query(BOMVersion).filter(BOMVersion.bom_item_id == item_id).order_by(BOMVersion.version.desc()).all()
@@ -604,7 +630,8 @@ def export_bom(project_id: int, _: Protected, team_id: int | None = None, db: Se
             "unit_cost": item.unit_cost,
             "total_cost": round(item.quantity * item.unit_cost, 2),
             "sponsored_by": item.sponsored_by,
-            "version": item.version,
+            "version": f"V{item.version}" if item.finalized else f"v{item.version}",
+            "finalized": item.finalized,
             "last_updated": item.last_updated,
         }
         for item in items
