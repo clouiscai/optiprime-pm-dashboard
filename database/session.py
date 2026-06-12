@@ -21,6 +21,7 @@ if DATABASE_URL.startswith("postgresql"):
     engine_options.update({"pool_size": 1, "max_overflow": 2, "pool_recycle": 300})
 engine = create_engine(DATABASE_URL, **engine_options)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+_runtime_migrations_done = False
 
 
 class Base(DeclarativeBase):
@@ -28,11 +29,21 @@ class Base(DeclarativeBase):
 
 
 def get_db():
+    ensure_runtime_migrations()
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+def ensure_runtime_migrations():
+    global _runtime_migrations_done
+    if _runtime_migrations_done:
+        return
+    run_sqlite_migrations()
+    run_postgres_migrations()
+    _runtime_migrations_done = True
 
 
 def init_db():
