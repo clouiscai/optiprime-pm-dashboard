@@ -724,6 +724,9 @@ nav button:hover {
 
 .bom-finalized-row td {
   background: #f4f5f7;
+}
+
+.bom-finalized-row td:first-child {
   box-shadow: inset 4px 0 0 #6b7280;
 }
 
