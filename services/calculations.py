@@ -35,12 +35,7 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
     team_count = max(1, len(teams))
     shared_bom_items = db.query(BOMItem).filter(BOMItem.project_id == project.id, BOMItem.team_id.is_(None)).all()
     shared_bom_total = round(sum(item.quantity * item.unit_cost for item in shared_bom_items if not item.sponsored_by), 2)
-    shared_finalized_bom_total = round(
-        sum(item.quantity * item.unit_cost for item in shared_bom_items if item.finalized and not item.sponsored_by),
-        2,
-    )
     shared_bom_per_team = round(shared_bom_total / team_count, 2) if teams else 0
-    shared_finalized_bom_per_team = round(shared_finalized_bom_total / team_count, 2) if teams else 0
 
     all_tasks = db.query(Task).filter(Task.project_id == project.id).all()
     all_bom_items = db.query(BOMItem).filter(BOMItem.project_id == project.id).all()
@@ -74,26 +69,13 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
     overdue_tasks = len([t for t in progress_tasks if t.due_date and t.due_date < date.today() and t.status != "done"])
     completion = round((sum(t.progress for t in progress_tasks) / len(progress_tasks)), 1) if progress_tasks else 0
     bom_total = round(sum(item.quantity * item.unit_cost for item in bom_items if not item.sponsored_by), 2)
-    finalized_bom_total = round(
-        sum(item.quantity * item.unit_cost for item in bom_items if item.finalized and not item.sponsored_by),
-        2,
-    )
     if team_id:
         own_bom_total = round(sum(item.quantity * item.unit_cost for item in bom_items if item.team_id == team_id and not item.sponsored_by), 2)
-        own_finalized_bom_total = round(
-            sum(
-                item.quantity * item.unit_cost
-                for item in bom_items
-                if item.team_id == team_id and item.finalized and not item.sponsored_by
-            ),
-            2,
-        )
         bom_total = round(own_bom_total + shared_bom_per_team, 2)
-        finalized_bom_total = round(own_finalized_bom_total + shared_finalized_bom_per_team, 2)
     budget_log_total = round(sum(log.amount for log in logs if not log.sponsored_by), 2)
     sponsor_total = round(sum(sponsor.amount for sponsor in sponsors), 2)
-    expected_spend = round(bom_total + budget_log_total, 2)
-    actual_spend = round(finalized_bom_total + budget_log_total, 2)
+    expected_spend = bom_total
+    actual_spend = budget_log_total
 
     status_counts: dict[str, int] = {"todo": 0, "in_progress": 0, "blocked": 0, "done": 0}
     priority_counts: dict[str, int] = {}
@@ -106,12 +88,6 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
         team_tasks = [task for task in all_tasks if task.team_id == summary_team.id]
         team_bom_total = sum(item.quantity * item.unit_cost for item in all_bom_items if item.team_id == summary_team.id and not item.sponsored_by)
         team_bom_total += shared_bom_per_team
-        team_finalized_bom_total = sum(
-            item.quantity * item.unit_cost
-            for item in all_bom_items
-            if item.team_id == summary_team.id and item.finalized and not item.sponsored_by
-        )
-        team_finalized_bom_total += shared_finalized_bom_per_team
         team_log_total = sum(log.amount for log in all_logs if log.team_id == summary_team.id and not log.sponsored_by)
         team_sponsor_total = sum(sponsor.amount for sponsor in all_sponsors if sponsor.team_id == summary_team.id)
         team_parent_ids = {task.parent_task_id for task in team_tasks if task.parent_task_id}
@@ -127,8 +103,8 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
                 "sponsor_total": round(team_sponsor_total, 2),
                 "completion": round(sum(task.progress for task in team_leaf_tasks) / len(team_leaf_tasks), 1) if team_leaf_tasks else 0,
                 "open_blockers": len([blocker for blocker in all_blockers if blocker.task and blocker.task.team_id == summary_team.id]),
-                "expected_spend": round(team_bom_total + team_log_total, 2),
-                "actual_spend": round(team_finalized_bom_total + team_log_total, 2),
+                "expected_spend": round(team_bom_total, 2),
+                "actual_spend": round(team_log_total, 2),
             }
         )
     if team:

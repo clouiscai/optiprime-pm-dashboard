@@ -595,7 +595,7 @@ nav button:hover {
 
 .budget-form {
   display: grid;
-  grid-template-columns: minmax(88px, 0.8fr) minmax(150px, 1.2fr) minmax(95px, 0.8fr);
+  grid-template-columns: 100px minmax(160px, 1.1fr) 140px 150px minmax(160px, 1fr) minmax(140px, 0.9fr) 120px;
   align-items: end;
   gap: 10px;
 }
@@ -609,7 +609,9 @@ nav button:hover {
 }
 
 .budget-form .budget-add-button {
-  grid-column: 1 / -1;
+  grid-column: auto;
+  min-height: 36px;
+  white-space: nowrap;
 }
 
 .invoice-form {
@@ -645,6 +647,19 @@ nav button:hover {
 .empty-note {
   color: var(--op-muted);
   margin: 0;
+}
+
+.bom-panel,
+.finance-panel {
+  background: #ffffff;
+  border: 1px solid #c9d2dc;
+  border-radius: 8px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.finance-panel .section-head {
+  justify-content: space-between;
 }
 
 .budget-split.bom-expanded {

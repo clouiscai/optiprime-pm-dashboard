@@ -193,7 +193,7 @@ After Vercel deploys:
 2. Confirm it returns `{"ok":true}`.
 3. Open the Vercel app URL.
 4. Log in with the admin credentials.
-5. Confirm Dashboard, Tasks, BOM/Budget, Sponsors, and Equipments/Asset load.
+5. Confirm Dashboard, Tasks, BOM, Finance, Sponsors, and Equipments/Asset load.
 
 If login fails, check that `VITE_API_URL` ends with `/api`, `DATABASE_URL` is the Supabase Postgres URL, and `FRONTEND_ORIGINS` matches the Vercel domain.
 
