@@ -1474,9 +1474,9 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
   return (
     <section className="stack">
       <div className="metrics-grid">
-        <MetricButton label="Planned" value={money(dashboard?.planned_budget)} detail="Open team allocation" onClick={() => setShowPlan(true)} />
-        <Metric label="BOM" value={money(dashboard?.bom_total)} detail="Current bill of materials" />
-        <Metric label="Budget logs" value={money(dashboard?.budget_log_total)} detail="Other actual spend" />
+        <MetricButton label="Planned Budget" value={money(dashboard?.planned_budget)} detail="Open team allocation" onClick={() => setShowPlan(true)} />
+        <Metric label="Expected Spending" value={money(dashboard?.expected_spend)} detail="All BOM components and budget logs" />
+        <Metric label="Actual Spending" value={money(dashboard?.actual_spend)} detail="Finalised components and budget logs" />
         <Metric label="Remaining" value={money(dashboard?.remaining_budget)} detail="Planned minus actual" tone={dashboard?.remaining_budget < 0 ? "danger" : ""} />
       </div>
 

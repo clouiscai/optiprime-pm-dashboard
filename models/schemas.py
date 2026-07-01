@@ -349,6 +349,7 @@ class DashboardRead(BaseModel):
     budget_log_total: float
     sponsor_total: float = 0
     planned_budget: float = 0
+    expected_spend: float = 0
     actual_spend: float
     remaining_budget: float
     status_counts: dict[str, int]
