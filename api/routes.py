@@ -493,7 +493,7 @@ def list_bom(project_id: int, _: Protected, team_id: int | None = None, db: Sess
     query = db.query(BOMItem).filter(BOMItem.project_id == project_id)
     if team_id:
         query = query.filter(or_(BOMItem.team_id == team_id, BOMItem.team_id.is_(None)))
-    return query.order_by(BOMItem.category, BOMItem.name).all()
+    return query.order_by(BOMItem.category, BOMItem.product, BOMItem.name).all()
 
 
 @router.post("/bom", response_model=BOMItemRead)
@@ -517,6 +517,8 @@ async def update_bom_item(item_id: int, payload: BOMItemUpdate, _: Writable, db:
         BOMVersion(
             bom_item_id=item.id,
             category=item.category,
+            product_number=item.product_number,
+            product=item.product,
             name=item.name,
             quantity=item.quantity,
             unit_cost=item.unit_cost,
@@ -603,6 +605,8 @@ async def rollback_bom(item_id: int, version_id: int, _: Writable, db: Session =
     normalize_bom_item_versions(db, item)
     item.name = version.name
     item.category = version.category
+    item.product_number = version.product_number
+    item.product = version.product
     item.quantity = version.quantity
     item.unit_cost = version.unit_cost
     item.sponsored_by = version.sponsored_by
@@ -625,7 +629,9 @@ def export_bom(project_id: int, _: Protected, team_id: int | None = None, db: Se
             "id": item.id,
             "team": item.team.code if item.team else "General",
             "category": item.category,
-            "name": item.name,
+            "product_number": item.product_number,
+            "product": item.product,
+            "description": item.name,
             "quantity": item.quantity,
             "unit_cost": item.unit_cost,
             "total_cost": round(item.quantity * item.unit_cost, 2),

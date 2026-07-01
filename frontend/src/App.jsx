@@ -1328,7 +1328,7 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
   const isMaster = selectedTeam === "master";
   const defaultTeam = teamId || teams[0]?.id || null;
   const defaultBomTeam = isMaster ? null : defaultTeam;
-  const emptyBomDraft = { project_id: projectId, team_id: defaultBomTeam, category: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" };
+  const emptyBomDraft = { project_id: projectId, team_id: defaultBomTeam, category: "", product_number: "", product: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" };
   const emptyBudgetDraft = { project_id: projectId, team_id: defaultTeam, category: "", amount: 0, date: today, notes: "", sponsored_by: "" };
   const [bomDraft, setBomDraft] = useState(emptyBomDraft);
   const [budgetDraft, setBudgetDraft] = useState(emptyBudgetDraft);
@@ -1351,7 +1351,7 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
   });
 
   useEffect(() => {
-    setBomDraft({ project_id: projectId, team_id: defaultBomTeam, category: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
+    setBomDraft({ project_id: projectId, team_id: defaultBomTeam, category: "", product_number: "", product: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
     setBudgetDraft({ project_id: projectId, team_id: defaultTeam, category: "", amount: 0, date: today, notes: "", sponsored_by: "" });
     setInvoiceDraft({ description: "", file: null });
     setHistory({});
@@ -1366,13 +1366,15 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
         project_id: projectId,
         team_id: bomDraft.team_id ? Number(bomDraft.team_id) : null,
         category: bomDraft.category.trim(),
+        product_number: bomDraft.product_number.trim(),
+        product: bomDraft.product.trim(),
         name: bomDraft.name.trim(),
         quantity: Number(bomDraft.quantity),
         unit_cost: Number(bomDraft.unit_cost),
         sponsored_by: bomDraft.sponsored_by.trim(),
       }),
     });
-    setBomDraft({ project_id: projectId, team_id: defaultBomTeam, category: bomDraft.category.trim(), name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
+    setBomDraft({ project_id: projectId, team_id: defaultBomTeam, category: bomDraft.category.trim(), product_number: "", product: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
     await onRefresh();
   }
 
@@ -1512,8 +1514,16 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
               <input list="bom-category-options" placeholder="Category" value={bomDraft.category} onChange={(event) => setBomDraft({ ...bomDraft, category: event.target.value })} />
             </label>
             <label className="compact-field">
-              <span>Item</span>
-              <input placeholder="Item" value={bomDraft.name} onChange={(event) => setBomDraft({ ...bomDraft, name: event.target.value })} />
+              <span>Product Number</span>
+              <input placeholder="Product number" value={bomDraft.product_number} onChange={(event) => setBomDraft({ ...bomDraft, product_number: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Product</span>
+              <input placeholder="Product" value={bomDraft.product} onChange={(event) => setBomDraft({ ...bomDraft, product: event.target.value })} />
+            </label>
+            <label className="compact-field">
+              <span>Description</span>
+              <input placeholder="Description" value={bomDraft.name} onChange={(event) => setBomDraft({ ...bomDraft, name: event.target.value })} />
             </label>
             <label className="compact-field">
               <span>Quantity</span>
@@ -1532,13 +1542,13 @@ function BomBudget({ projectId, teamId, selectedTeam, token, teams, dashboard, b
           <div className="table-wrap bom-table-wrap">
             <table className="bom-table">
               <thead>
-                <tr>{isMaster && <th className="bom-team-col">Team</th>}<th className="bom-category-col">Category</th><th className="bom-item-col">Item</th><th className="bom-qty-col">Qty</th><th className="bom-cost-col">Unit Cost (SGD)</th><th className="bom-total-col">Total (SGD)</th><th className="bom-sponsor-col">Sponsor</th>{bomExpanded && <th className="bom-version-col">Version</th>}{bomExpanded && <th className="bom-actions-col"></th>}</tr>
+                <tr>{isMaster && <th className="bom-team-col">Team</th>}<th className="bom-category-col">Category</th><th className="bom-product-number-col">Product Number</th><th className="bom-product-col">Product</th><th className="bom-item-col">Description</th><th className="bom-qty-col">Qty</th><th className="bom-cost-col">Unit Cost (SGD)</th><th className="bom-total-col">Total (SGD)</th><th className="bom-sponsor-col">Sponsor</th>{bomExpanded && <th className="bom-version-col">Version</th>}{bomExpanded && <th className="bom-actions-col"></th>}</tr>
               </thead>
               <tbody>
                 {groupedBomEntries.map(([category, items]) => (
                   <Fragment key={category}>
                     <tr className="bom-category-row">
-                      <td colSpan={isMaster ? (bomExpanded ? "9" : "7") : (bomExpanded ? "8" : "6")}>{category}</td>
+                      <td colSpan={isMaster ? (bomExpanded ? "11" : "9") : (bomExpanded ? "10" : "8")}>{category}</td>
                     </tr>
                     {items.map((item) => (
                       <BomRow key={item.id} item={item} token={token} teams={teams} isMaster={isMaster} canEdit={canEdit && bomExpanded} expanded={bomExpanded} categories={bomCategories} history={history[item.id]} onLoadHistory={loadHistory} onCloseHistory={closeHistory} onRefresh={onRefresh} />
@@ -1826,11 +1836,11 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
 
 function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, history, onLoadHistory, onCloseHistory, onRefresh }) {
   const categoryOptionsId = `bom-category-options-${item.id}`;
-  const [edit, setEdit] = useState({ team_id: item.team_id, category: item.category || "", name: item.name, quantity: item.quantity, unit_cost: item.unit_cost, sponsored_by: item.sponsored_by || "" });
+  const [edit, setEdit] = useState({ team_id: item.team_id, category: item.category || "", product_number: item.product_number || "", product: item.product || "", name: item.name, quantity: item.quantity, unit_cost: item.unit_cost, sponsored_by: item.sponsored_by || "" });
   const rowCanEdit = canEdit && !item.finalized;
 
   useEffect(() => {
-    setEdit({ team_id: item.team_id, category: item.category || "", name: item.name, quantity: item.quantity, unit_cost: item.unit_cost, sponsored_by: item.sponsored_by || "" });
+    setEdit({ team_id: item.team_id, category: item.category || "", product_number: item.product_number || "", product: item.product || "", name: item.name, quantity: item.quantity, unit_cost: item.unit_cost, sponsored_by: item.sponsored_by || "" });
   }, [item]);
 
   async function save() {
@@ -1840,6 +1850,8 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
         ...edit,
         team_id: edit.team_id ? Number(edit.team_id) : null,
         category: edit.category.trim(),
+        product_number: edit.product_number.trim(),
+        product: edit.product.trim(),
         quantity: Number(edit.quantity),
         unit_cost: Number(edit.unit_cost),
         sponsored_by: edit.sponsored_by.trim(),
@@ -1881,7 +1893,7 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
 
   return (
     <>
-      <tr className={item.finalized ? "bom-finalized-row" : ""}>
+      <tr className={`bom-item-row${item.finalized ? " bom-finalized-row" : ""}`}>
         {isMaster && (
           <td>
             {expanded ? (
@@ -1902,6 +1914,8 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
             </>
           ) : item.category || "Uncategorized"}
         </td>
+        <td className="bom-product-number-col">{expanded ? <input value={edit.product_number} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, product_number: event.target.value })} /> : item.product_number || "-"}</td>
+        <td className="bom-product-col">{expanded ? <input value={edit.product} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, product: event.target.value })} /> : item.product || "-"}</td>
         <td className="bom-item-col">{expanded ? <input value={edit.name} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, name: event.target.value })} /> : item.name}</td>
         <td className="bom-qty-col">{expanded ? <input type="number" step="1" value={edit.quantity} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, quantity: event.target.value })} /> : item.quantity}</td>
         <td className="bom-cost-col">{expanded ? <input type="number" step="0.01" value={edit.unit_cost} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, unit_cost: event.target.value })} /> : money(item.unit_cost)}</td>
@@ -1919,7 +1933,7 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
       </tr>
       {expanded && history && (
         <tr className="history-row">
-          <td colSpan={isMaster ? "9" : "8"}>
+          <td colSpan={isMaster ? "11" : "10"}>
             <div className="history-panel">
               <header>
                 <strong>Version history</strong>
@@ -1928,7 +1942,7 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
               {history.length === 0 && <span>No previous versions.</span>}
               {history.map((version) => (
                 <div className="history-version" key={version.id}>
-                  <span>v{version.version}: {version.category ? `${version.category} - ` : ""}{version.name} - {money(version.total_cost)}{version.sponsored_by ? ` - ${version.sponsored_by}` : ""}</span>
+                  <span>v{version.version}: {[version.category, version.product_number, version.product, version.name].filter(Boolean).join(" - ")} - {money(version.total_cost)}{version.sponsored_by ? ` - ${version.sponsored_by}` : ""}</span>
                   <div>
                     {canEdit && <button onClick={() => rollback(version.id)}>Roll Back</button>}
                     {canEdit && <button className="danger-button" onClick={() => deleteVersion(version.id)}>Delete Version</button>}

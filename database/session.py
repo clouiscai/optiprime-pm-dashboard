@@ -65,9 +65,13 @@ def run_sqlite_migrations():
         "tasks.parent_task_id": "ALTER TABLE tasks ADD COLUMN parent_task_id INTEGER REFERENCES tasks(id)",
         "bom_items.team_id": "ALTER TABLE bom_items ADD COLUMN team_id INTEGER REFERENCES teams(id)",
         "bom_items.category": "ALTER TABLE bom_items ADD COLUMN category VARCHAR(120) DEFAULT '' NOT NULL",
+        "bom_items.product_number": "ALTER TABLE bom_items ADD COLUMN product_number VARCHAR(120) DEFAULT '' NOT NULL",
+        "bom_items.product": "ALTER TABLE bom_items ADD COLUMN product VARCHAR(220) DEFAULT '' NOT NULL",
         "bom_items.sponsored_by": "ALTER TABLE bom_items ADD COLUMN sponsored_by VARCHAR(160) DEFAULT '' NOT NULL",
         "bom_items.finalized": "ALTER TABLE bom_items ADD COLUMN finalized BOOLEAN DEFAULT 0 NOT NULL",
         "bom_versions.category": "ALTER TABLE bom_versions ADD COLUMN category VARCHAR(120) DEFAULT '' NOT NULL",
+        "bom_versions.product_number": "ALTER TABLE bom_versions ADD COLUMN product_number VARCHAR(120) DEFAULT '' NOT NULL",
+        "bom_versions.product": "ALTER TABLE bom_versions ADD COLUMN product VARCHAR(220) DEFAULT '' NOT NULL",
         "bom_versions.sponsored_by": "ALTER TABLE bom_versions ADD COLUMN sponsored_by VARCHAR(160) DEFAULT '' NOT NULL",
         "budget_logs.team_id": "ALTER TABLE budget_logs ADD COLUMN team_id INTEGER REFERENCES teams(id)",
         "budget_logs.sponsored_by": "ALTER TABLE budget_logs ADD COLUMN sponsored_by VARCHAR(160) DEFAULT '' NOT NULL",
@@ -118,3 +122,7 @@ def run_postgres_migrations():
         )
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS file_data TEXT DEFAULT '' NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS bom_items ADD COLUMN IF NOT EXISTS finalized BOOLEAN DEFAULT FALSE NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS bom_items ADD COLUMN IF NOT EXISTS product_number VARCHAR(120) DEFAULT '' NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS bom_items ADD COLUMN IF NOT EXISTS product VARCHAR(220) DEFAULT '' NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS bom_versions ADD COLUMN IF NOT EXISTS product_number VARCHAR(120) DEFAULT '' NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS bom_versions ADD COLUMN IF NOT EXISTS product VARCHAR(220) DEFAULT '' NOT NULL"))
