@@ -580,7 +580,7 @@ nav button:hover {
 .bom-form {
   align-items: end;
   display: grid;
-  grid-template-columns: minmax(0, 0.65fr) minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.5fr) 70px 100px minmax(0, 1fr) 74px;
+  grid-template-columns: minmax(0, 0.65fr) minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.5fr) 70px 100px minmax(0, 1fr) 74px;
 }
 
 .bom-form .compact-field,
@@ -656,7 +656,7 @@ nav button:hover {
 }
 
 .bom-table {
-  min-width: 1760px;
+  min-width: 1930px;
   table-layout: fixed;
 }
 
@@ -686,6 +686,10 @@ nav button:hover {
 
 .bom-table .bom-product-col {
   width: 220px;
+}
+
+.bom-table .bom-vendor-col {
+  width: 170px;
 }
 
 .bom-table .bom-item-col {
