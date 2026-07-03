@@ -140,8 +140,8 @@ function LoadingSkunk({ label = "Loading" }) {
 }
 
 export default function App() {
-  const [token, setToken] = useState(localStorage.getItem("optiprime_token") || "");
-  const [role, setRole] = useState(localStorage.getItem("optiprime_role") || "admin");
+  const [token, setToken] = useState("");
+  const [role, setRole] = useState("admin");
   const [username, setUsername] = useState("OptiPrime");
   const [password, setPassword] = useState("");
   const [authorized, setAuthorized] = useState(false);
@@ -235,8 +235,7 @@ export default function App() {
     setActiveTab("Dashboard");
     setToken(nextToken);
     setRole(nextRole);
-    localStorage.setItem("optiprime_token", nextToken);
-    localStorage.setItem("optiprime_role", nextRole);
+    setPassword("");
     setAuthorized(true);
   }
 
@@ -258,14 +257,23 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!token) return;
-    apiFetch("/auth/verify", token)
-      .then((payload) => loadWorkspace(token, payload.role))
-      .catch(() => {
-        localStorage.removeItem("optiprime_token");
-        localStorage.removeItem("optiprime_role");
-        setToken("");
-      });
+    localStorage.removeItem("optiprime_token");
+    localStorage.removeItem("optiprime_role");
+    sessionStorage.removeItem("optiprime_token");
+    sessionStorage.removeItem("optiprime_role");
+  }, []);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setToken("");
+      setRole("admin");
+      setAuthorized(false);
+      setProjectId(null);
+      setPassword("");
+      setAuthError("Your session expired. Please sign in again.");
+    };
+    window.addEventListener("optiprime:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("optiprime:unauthorized", handleUnauthorized);
   }, []);
 
   useEffect(() => {
@@ -304,8 +312,6 @@ export default function App() {
   }
 
   function logout() {
-    localStorage.removeItem("optiprime_token");
-    localStorage.removeItem("optiprime_role");
     setToken("");
     setRole("admin");
     setAuthorized(false);
@@ -346,11 +352,11 @@ export default function App() {
           <h1>OptiPrime</h1>
           <label>
             Username
-            <input value={username} onChange={(event) => setUsername(event.target.value)} autoFocus />
+            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoFocus />
           </label>
           <label>
             Password
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" />
           </label>
           {authError && <p className="error">{authError}</p>}
           <button type="submit">Sign In</button>

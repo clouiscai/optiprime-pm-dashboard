@@ -41,6 +41,9 @@ Then edit `.env` with local-only values:
 
 ```text
 ROBOTX_TOKEN=replace-with-a-long-random-token
+OPTIPRIME_SESSION_SECRET=replace-with-an-independent-random-signing-secret
+OPTIPRIME_SESSION_MINUTES=120
+OPTIPRIME_ALLOW_STATIC_TOKENS=false
 OPTIPRIME_USERNAME=OptiPrime
 OPTIPRIME_PASSWORD=replace-with-admin-password
 OPTIPRIME_VIEWER_TOKEN=replace-with-a-different-long-random-token
@@ -150,6 +153,9 @@ In Vercel Project Settings -> Environment Variables, add:
 ```text
 DATABASE_URL=postgresql://postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres?sslmode=require
 ROBOTX_TOKEN=replace-with-a-long-random-token
+OPTIPRIME_SESSION_SECRET=replace-with-an-independent-random-signing-secret
+OPTIPRIME_SESSION_MINUTES=120
+OPTIPRIME_ALLOW_STATIC_TOKENS=false
 OPTIPRIME_USERNAME=OptiPrime
 OPTIPRIME_PASSWORD=replace-with-admin-password
 OPTIPRIME_VIEWER_TOKEN=replace-with-a-different-long-random-token
@@ -177,6 +183,8 @@ The script will:
 - verify/login to Vercel through `npx vercel login`
 - link this folder to your Vercel project through `npx vercel link`
 - generate secure API tokens if you do not pass them
+- generate a separate session-signing secret
+- disable permanent static bearer-token access
 - add the backend and frontend env vars to production, preview, and development
 
 Then deploy:
@@ -221,6 +229,9 @@ Minimum environment variables:
 
 ```text
 ROBOTX_TOKEN
+OPTIPRIME_SESSION_SECRET
+OPTIPRIME_SESSION_MINUTES
+OPTIPRIME_ALLOW_STATIC_TOKENS
 OPTIPRIME_USERNAME
 OPTIPRIME_PASSWORD
 OPTIPRIME_VIEWER_TOKEN
@@ -239,6 +250,20 @@ Recommended deployment approach:
 6. Run the FastAPI backend behind HTTPS.
 7. Restrict CORS origins to the deployed frontend domain.
 
+## Authentication Security
+
+The web client keeps its signed session token in memory only. Refreshing or reopening the site requires the user to enter their password again. Session tokens also expire on the backend after `OPTIPRIME_SESSION_MINUTES` and cannot be replaced with the old permanent API tokens while `OPTIPRIME_ALLOW_STATIC_TOKENS=false`.
+
+For production:
+
+- use unique admin and viewer passwords of at least 16 characters
+- keep `OPTIPRIME_SESSION_SECRET` independent from `ROBOTX_TOKEN`
+- leave `OPTIPRIME_ALLOW_STATIC_TOKENS=false`
+- rotate passwords and database credentials whenever they are shared outside the password manager
+- use a least-privileged PostgreSQL role instead of the Supabase `postgres` owner account
+
+To create the restricted Supabase runtime role, review and run `database/create_runtime_role.sql` in the Supabase SQL Editor. Then change Vercel's `DATABASE_URL` username to `optiprime_runtime`, set `OPTIPRIME_SKIP_STARTUP_DB=true`, and redeploy. Schema migrations must be run separately with the database-owner account before deploying code that changes tables.
+
 ## Security Checklist Before Sharing
 
 Run these before handing off:
@@ -247,6 +272,8 @@ Run these before handing off:
 git status --short
 git ls-files | Select-String -Pattern '(^|/)(\.env|.*\.db|.*\.sqlite|.*\.sqlite3|.*\.pem|.*\.key|.*\.crt)$'
 git grep -n -I -E '(TOKEN|PASSWORD|SECRET|authtoken|Bearer)' -- . ':!frontend/package-lock.json'
+cd frontend; npm audit; cd ..
+.\.venv\Scripts\python.exe -m pip_audit -r requirements.txt
 ```
 
 Expected result:

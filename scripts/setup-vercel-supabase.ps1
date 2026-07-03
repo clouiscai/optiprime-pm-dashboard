@@ -14,7 +14,8 @@ param(
   [string]$ViewerPassword,
 
   [string]$RobotxToken,
-  [string]$ViewerToken
+  [string]$ViewerToken,
+  [string]$SessionSecret
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,6 +62,9 @@ if (-not $RobotxToken) {
 if (-not $ViewerToken) {
   $ViewerToken = New-SecretToken
 }
+if (-not $SessionSecret) {
+  $SessionSecret = New-SecretToken
+}
 
 if ($DatabaseUrl -notmatch "^postgres(ql)?://") {
   throw "DatabaseUrl must be a Supabase Postgres URL starting with postgresql://"
@@ -103,6 +107,9 @@ Set-VercelEnv "OPTIPRIME_PASSWORD" $AdminPassword
 Set-VercelEnv "OPTIPRIME_VIEWER_TOKEN" $ViewerToken
 Set-VercelEnv "OPTIPRIME_VIEWER_USERNAME" $ViewerUsername
 Set-VercelEnv "OPTIPRIME_VIEWER_PASSWORD" $ViewerPassword
+Set-VercelEnv "OPTIPRIME_SESSION_SECRET" $SessionSecret
+Set-VercelEnv "OPTIPRIME_SESSION_MINUTES" "120"
+Set-VercelEnv "OPTIPRIME_ALLOW_STATIC_TOKENS" "false"
 Set-VercelEnv "FRONTEND_ORIGINS" $VercelUrl
 Set-VercelEnv "VITE_API_URL" $ApiUrl
 Set-VercelEnv "VITE_ENABLE_REALTIME" "false"

@@ -20,6 +20,9 @@ export async function apiFetch(path, token, options = {}) {
     Authorization: `Bearer ${token}`,
   };
   const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  if (response.status === 401) {
+    window.dispatchEvent(new Event("optiprime:unauthorized"));
+  }
   if (!response.ok) {
     const message = await response.text();
     throw new Error(message || `Request failed with ${response.status}`);

@@ -41,6 +41,9 @@ def ensure_runtime_migrations():
     global _runtime_migrations_done
     if _runtime_migrations_done:
         return
+    if os.getenv("OPTIPRIME_SKIP_STARTUP_DB", "").lower() in {"1", "true", "yes"}:
+        _runtime_migrations_done = True
+        return
     run_sqlite_migrations()
     run_postgres_migrations()
     _runtime_migrations_done = True

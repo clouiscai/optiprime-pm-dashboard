@@ -2,12 +2,16 @@ import base64
 import csv
 import io
 import logging
+import os
+import time
+from collections import defaultdict, deque
 from pathlib import Path
+from threading import Lock
 from uuid import uuid4
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from sqlalchemy import or_, text
 from sqlalchemy.orm import Session, joinedload
 
@@ -50,7 +54,7 @@ from models.schemas import (
     UserRead,
     UserUpdate,
 )
-from services.auth import account_for_credentials, expected_username, require_token, require_websocket_token, require_write_token, role_for_token
+from services.auth import account_for_credentials, expected_username, require_token, require_websocket_token, require_write_token, role_for_token, session_for_token
 from services.calculations import project_dashboard, task_with_open_blockers
 from services.realtime import manager
 
@@ -61,6 +65,35 @@ Protected = Annotated[str, Depends(require_token)]
 Writable = Annotated[str, Depends(require_write_token)]
 ROOT = Path(__file__).resolve().parents[1]
 INVOICE_DIR = ROOT / "uploads" / "invoices"
+MAX_INVOICE_BYTES = 10 * 1024 * 1024
+LOGIN_WINDOW_SECONDS = 15 * 60
+LOGIN_ATTEMPT_LIMIT = 5
+login_attempts: dict[str, deque[float]] = defaultdict(deque)
+login_attempts_lock = Lock()
+
+
+def login_client_key(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+    return forwarded or (request.client.host if request.client else "unknown")
+
+
+def check_login_rate_limit(client_key: str):
+    now = time.time()
+    with login_attempts_lock:
+        attempts = login_attempts[client_key]
+        while attempts and attempts[0] <= now - LOGIN_WINDOW_SECONDS:
+            attempts.popleft()
+        if len(attempts) >= LOGIN_ATTEMPT_LIMIT:
+            retry_after = max(1, int(LOGIN_WINDOW_SECONDS - (now - attempts[0])))
+            raise HTTPException(429, "Too many login attempts. Try again later.", headers={"Retry-After": str(retry_after)})
+
+
+def record_login_result(client_key: str, succeeded: bool):
+    with login_attempts_lock:
+        if succeeded:
+            login_attempts.pop(client_key, None)
+        else:
+            login_attempts[client_key].append(time.time())
 
 
 def get_project_or_404(db: Session, project_id: int) -> Project:
@@ -107,6 +140,8 @@ def normalize_bom_item_versions(db: Session, item: BOMItem) -> bool:
 
 
 def ensure_invoice_file_data_column(db: Session):
+    if os.getenv("OPTIPRIME_SKIP_STARTUP_DB", "").lower() in {"1", "true", "yes"}:
+        return
     try:
         if db.bind and db.bind.dialect.name == "sqlite":
             columns = [row[1] for row in db.execute(text("PRAGMA table_info(invoices)")).all()]
@@ -154,14 +189,26 @@ def status_for_progress(progress: int, current_status: str) -> str:
 
 @router.get("/auth/verify", response_model=TokenCheck)
 def verify_token(token: Protected):
-    return TokenCheck(ok=True, role=role_for_token(token) or "viewer")
+    session = session_for_token(token)
+    role = role_for_token(token) or "viewer"
+    fallback_user = expected_username() if role == "admin" else "viewer"
+    return TokenCheck(ok=True, user=str(session["sub"]) if session else fallback_user, role=role)
 
 
 @router.post("/auth/login", response_model=LoginResponse)
-def login(payload: LoginRequest):
-    account = account_for_credentials(payload.username, payload.password)
+def login(payload: LoginRequest, request: Request, response: Response):
+    client_key = login_client_key(request)
+    check_login_rate_limit(client_key)
+    try:
+        account = account_for_credentials(payload.username, payload.password)
+    except RuntimeError as exc:
+        logger.error("Authentication configuration is incomplete")
+        raise HTTPException(503, "Authentication is temporarily unavailable") from exc
     if not account:
+        record_login_result(client_key, False)
         raise HTTPException(401, "Invalid username or password")
+    record_login_result(client_key, True)
+    response.headers["Cache-Control"] = "no-store"
     return LoginResponse(token=account["token"], user=account["user"], role=account["role"])
 
 
@@ -714,7 +761,13 @@ async def upload_invoice(
     if file.content_type != "application/pdf" or Path(original_name).suffix.lower() != ".pdf":
         raise HTTPException(400, "Only PDF invoices are accepted")
 
-    content = await file.read()
+    clean_description = description.strip()
+    if not clean_description or len(clean_description) > 220:
+        raise HTTPException(400, "Invoice description must be between 1 and 220 characters")
+
+    content = await file.read(MAX_INVOICE_BYTES + 1)
+    if len(content) > MAX_INVOICE_BYTES:
+        raise HTTPException(413, "Invoice PDF must be 10 MB or smaller")
     if not content.startswith(b"%PDF"):
         raise HTTPException(400, "Only valid PDF invoices are accepted")
 
@@ -723,7 +776,7 @@ async def upload_invoice(
     invoice = Invoice(
         project_id=project_id,
         team_id=None,
-        description=description.strip(),
+        description=clean_description,
         original_filename=original_name,
         stored_filename=str(Path(str(project_id)) / stored_name),
         file_data=base64.b64encode(content).decode("ascii"),
@@ -742,16 +795,20 @@ def view_invoice(invoice_id: int, _: Protected, db: Session = Depends(get_db)):
     invoice = db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(404, "Invoice not found")
-    safe_name = invoice.original_filename.replace(chr(34), "")
+    safe_name = Path(invoice.original_filename).name.replace(chr(34), "").replace("\r", "").replace("\n", "")
     if invoice.file_data:
         try:
-            content = base64.b64decode(invoice.file_data)
+            content = base64.b64decode(invoice.file_data, validate=True)
         except Exception as exc:
             raise HTTPException(500, "Invoice file is corrupted") from exc
         return Response(
             content=content,
             media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+            headers={
+                "Content-Disposition": f'inline; filename="{safe_name}"',
+                "Content-Security-Policy": "sandbox",
+                "X-Content-Type-Options": "nosniff",
+            },
         )
     path = (INVOICE_DIR / invoice.stored_filename).resolve()
     if not str(path).startswith(str(INVOICE_DIR.resolve())) or not path.exists():
@@ -759,7 +816,11 @@ def view_invoice(invoice_id: int, _: Protected, db: Session = Depends(get_db)):
     return Response(
         content=path.read_bytes(),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+        headers={
+            "Content-Disposition": f'inline; filename="{safe_name}"',
+            "Content-Security-Policy": "sandbox",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
