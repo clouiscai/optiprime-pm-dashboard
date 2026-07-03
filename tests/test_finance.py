@@ -7,10 +7,10 @@ from fastapi import UploadFile
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from api.routes import amount_in_sgd, create_budget_log, delete_invoice, upload_invoice
+from api.routes import amount_in_sgd, create_budget_log, create_invoice_purchase, delete_invoice, upload_invoice
 from database.session import Base
 from models.entities import BudgetLog, Invoice, Project
-from models.schemas import BudgetLogCreate
+from models.schemas import BudgetLogCreate, InvoicePurchaseCreate
 
 
 class FinanceTests(unittest.TestCase):
@@ -45,32 +45,55 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(log.exchange_rate_to_sgd, 1.3526)
         self.assertEqual(log.amount, 335.95)
 
-    def test_invoice_creates_and_deletes_one_linked_expense(self):
+    def test_invoice_groups_multiple_purchases_and_deletes_them(self):
         upload = UploadFile(filename="invoice.pdf", file=io.BytesIO(b"%PDF-1.4\n%%EOF"))
         upload.headers = {"content-type": "application/pdf"}
         invoice = asyncio.run(
             upload_invoice(
                 "test-token",
                 project_id=self.project_id,
-                team_id=None,
-                category="Components",
+                vendor="Blue Robotics",
+                invoice_number="BR-1042",
                 description="USD component order",
                 invoice_date=date(2026, 7, 3),
                 currency="USD",
-                original_amount=100,
                 exchange_rate_to_sgd=1.35,
+                team_id=None,
+                category="",
+                original_amount=0,
                 sponsored_by="",
                 file=upload,
                 db=self.db,
             )
         )
-        self.assertIsNotNone(invoice.budget_log_id)
-        linked_log = self.db.get(BudgetLog, invoice.budget_log_id)
-        self.assertEqual(linked_log.amount, 135)
+        first = asyncio.run(
+            create_invoice_purchase(
+                invoice.id,
+                InvoicePurchaseCreate(category="Components", original_amount=100, notes="Thruster"),
+                "test-token",
+                self.db,
+            )
+        )
+        second = asyncio.run(
+            create_invoice_purchase(
+                invoice.id,
+                InvoicePurchaseCreate(category="Shipping", original_amount=20, notes="Freight"),
+                "test-token",
+                self.db,
+            )
+        )
+        self.db.refresh(invoice)
+        self.assertEqual(invoice.vendor, "Blue Robotics")
+        self.assertEqual(invoice.invoice_number, "BR-1042")
+        self.assertEqual(invoice.original_amount, 120)
+        self.assertEqual(invoice.amount_sgd, 162)
+        self.assertEqual(first.invoice_id, invoice.id)
+        self.assertEqual(second.invoice_id, invoice.id)
+        self.assertEqual(self.db.query(BudgetLog).filter(BudgetLog.invoice_id == invoice.id).count(), 2)
         self.assertEqual(self.db.query(Invoice).count(), 1)
         asyncio.run(delete_invoice(invoice.id, "test-token", self.db))
         self.assertEqual(self.db.query(Invoice).count(), 0)
-        self.assertIsNone(self.db.get(BudgetLog, linked_log.id))
+        self.assertEqual(self.db.query(BudgetLog).count(), 0)
 
 
 if __name__ == "__main__":

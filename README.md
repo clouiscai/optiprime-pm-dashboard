@@ -98,7 +98,17 @@ npm run build
 
 This repository is configured for Vercel hosting through `vercel.json`. Vercel serves the React/Vite frontend and routes `/api/*` to the FastAPI app in `app.py`.
 
-Important: use Supabase Postgres or another hosted Postgres database for production. Do not use SQLite on Vercel because serverless file storage is temporary. Uploaded invoice PDFs also should move to durable object storage before serious production use; the database records are persistent, but files written to local serverless disk are not guaranteed to stay.
+Important: use Supabase Postgres or another hosted Postgres database for production. Do not use SQLite on Vercel because serverless file storage is temporary. Invoice PDFs are stored in the database with their invoice records and are limited to 10 MB each.
+
+### Finance Data Model
+
+Finance records follow this hierarchy:
+
+1. Vendor
+2. Invoice number and PDF
+3. Purchase lines under that invoice, including materials, shipping, tax, fees, and services
+
+Invoice headers store the vendor, invoice number, date, source currency, SGD exchange rate, description, and PDF. Actual spending is calculated from the purchase lines, not from the invoice header, so invoice totals are never counted twice. Standalone expenses remain available for spending that has no invoice.
 
 ### 1. Create Supabase Database
 

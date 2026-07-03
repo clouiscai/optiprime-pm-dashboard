@@ -13,7 +13,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
-from sqlalchemy import or_, text
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, joinedload
 
 from database.session import get_db
@@ -32,7 +32,9 @@ from models.schemas import (
     BudgetLogCreate,
     BudgetLogRead,
     BudgetLogUpdate,
+    InvoicePurchaseCreate,
     InvoiceRead,
+    InvoiceUpdate,
     DashboardRead,
     LoginRequest,
     LoginResponse,
@@ -134,6 +136,44 @@ def amount_in_sgd(original_amount: float, exchange_rate_to_sgd: float) -> float:
         raise HTTPException(400, "Exchange rate must be greater than zero")
     converted = Decimal(str(original_amount)) * Decimal(str(exchange_rate_to_sgd))
     return float(converted.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def refresh_invoice_totals(db: Session, invoice: Invoice) -> None:
+    original_total, sgd_total = (
+        db.query(
+            func.coalesce(func.sum(BudgetLog.original_amount), 0),
+            func.coalesce(func.sum(BudgetLog.amount), 0),
+        )
+        .filter(BudgetLog.invoice_id == invoice.id)
+        .one()
+    )
+    invoice.original_amount = round(float(original_total or 0), 2)
+    invoice.amount_sgd = round(float(sgd_total or 0), 2)
+
+
+def validate_invoice_identity(
+    db: Session,
+    project_id: int,
+    vendor: str,
+    invoice_number: str,
+    exclude_invoice_id: int | None = None,
+) -> tuple[str, str]:
+    clean_vendor = vendor.strip()
+    clean_number = invoice_number.strip()
+    if not clean_vendor:
+        raise HTTPException(400, "Vendor is required")
+    if not clean_number:
+        raise HTTPException(400, "Invoice number is required")
+    query = db.query(Invoice).filter(
+        Invoice.project_id == project_id,
+        Invoice.vendor.ilike(clean_vendor),
+        Invoice.invoice_number.ilike(clean_number),
+    )
+    if exclude_invoice_id is not None:
+        query = query.filter(Invoice.id != exclude_invoice_id)
+    if query.first():
+        raise HTTPException(409, "This vendor already has an invoice with that number")
+    return clean_vendor, clean_number
 
 
 def normalize_bom_item_versions(db: Session, item: BOMItem) -> bool:
@@ -743,8 +783,9 @@ async def update_budget_log(log_id: int, payload: BudgetLogUpdate, _: Writable, 
     if not log:
         raise HTTPException(404, "Budget log not found")
     updates = payload.model_dump(exclude_unset=True)
-    currency = normalize_currency(updates.get("currency", log.currency))
-    exchange_rate = updates.get("exchange_rate_to_sgd", log.exchange_rate_to_sgd)
+    linked_invoice = db.get(Invoice, log.invoice_id) if log.invoice_id else None
+    currency = normalize_currency(linked_invoice.currency if linked_invoice else updates.get("currency", log.currency))
+    exchange_rate = linked_invoice.exchange_rate_to_sgd if linked_invoice else updates.get("exchange_rate_to_sgd", log.exchange_rate_to_sgd)
     original_amount = updates.get("original_amount")
     if original_amount is None:
         original_amount = updates.get("amount", log.original_amount or log.amount)
@@ -752,8 +793,13 @@ async def update_budget_log(log_id: int, payload: BudgetLogUpdate, _: Writable, 
     updates["original_amount"] = original_amount
     updates["exchange_rate_to_sgd"] = exchange_rate
     updates["amount"] = amount_in_sgd(original_amount, exchange_rate)
+    if linked_invoice:
+        updates["date"] = linked_invoice.invoice_date or log.date
     for field, value in updates.items():
         setattr(log, field, value)
+    db.flush()
+    if linked_invoice:
+        refresh_invoice_totals(db, linked_invoice)
     db.commit()
     db.refresh(log)
     await manager.broadcast("budget.updated", {"project_id": log.project_id, "budget_log_id": log.id})
@@ -766,10 +812,17 @@ async def delete_budget_log(log_id: int, _: Writable, db: Session = Depends(get_
     if not log:
         raise HTTPException(404, "Budget log not found")
     project_id = log.project_id
+    invoice_id = log.invoice_id
+    linked_invoice = db.get(Invoice, invoice_id) if invoice_id else None
     db.query(Invoice).filter(Invoice.budget_log_id == log.id).update({Invoice.budget_log_id: None}, synchronize_session=False)
     db.delete(log)
+    db.flush()
+    if linked_invoice:
+        refresh_invoice_totals(db, linked_invoice)
     db.commit()
     await manager.broadcast("budget.updated", {"project_id": project_id})
+    if invoice_id:
+        await manager.broadcast("invoice.updated", {"project_id": project_id, "invoice_id": invoice_id})
     return Response(status_code=204)
 
 
@@ -777,26 +830,35 @@ async def delete_budget_log(log_id: int, _: Writable, db: Session = Depends(get_
 def list_invoices(project_id: int, _: Protected, db: Session = Depends(get_db)):
     get_project_or_404(db, project_id)
     ensure_invoice_file_data_column(db)
-    return db.query(Invoice).filter(Invoice.project_id == project_id).order_by(Invoice.uploaded_at.desc(), Invoice.id.desc()).all()
+    return (
+        db.query(Invoice)
+        .options(joinedload(Invoice.purchases))
+        .filter(Invoice.project_id == project_id)
+        .order_by(Invoice.vendor.asc(), Invoice.invoice_date.desc(), Invoice.id.desc())
+        .all()
+    )
 
 
 @router.post("/invoices", response_model=InvoiceRead)
 async def upload_invoice(
     _: Writable,
     project_id: int = Form(...),
-    team_id: int | None = Form(None),
-    category: str = Form(...),
+    vendor: str = Form(...),
+    invoice_number: str = Form(...),
     description: str = Form(...),
     invoice_date: DateType = Form(...),
     currency: str = Form("SGD"),
-    original_amount: float = Form(...),
     exchange_rate_to_sgd: float = Form(1),
+    team_id: int | None = Form(None),
+    category: str = Form(""),
+    original_amount: float = Form(0),
     sponsored_by: str = Form(""),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
     get_project_or_404(db, project_id)
     ensure_invoice_file_data_column(db)
+    clean_vendor, clean_number = validate_invoice_identity(db, project_id, vendor, invoice_number)
     original_name = Path(file.filename or "invoice.pdf").name
     if file.content_type != "application/pdf" or Path(original_name).suffix.lower() != ".pdf":
         raise HTTPException(400, "Only PDF invoices are accepted")
@@ -811,48 +873,129 @@ async def upload_invoice(
     if not content.startswith(b"%PDF"):
         raise HTTPException(400, "Only valid PDF invoices are accepted")
 
-    clean_category = category.strip()
-    if not clean_category or len(clean_category) > 120:
-        raise HTTPException(400, "Invoice category must be between 1 and 120 characters")
     currency_code = normalize_currency(currency)
-    converted_amount = amount_in_sgd(original_amount, exchange_rate_to_sgd)
+    amount_in_sgd(0, exchange_rate_to_sgd)
     clean_sponsor = sponsored_by.strip()
     stored_name = f"{uuid4().hex}.pdf"
 
-    log = BudgetLog(
-        project_id=project_id,
-        team_id=team_id,
-        category=clean_category,
-        currency=currency_code,
-        original_amount=original_amount,
-        exchange_rate_to_sgd=exchange_rate_to_sgd,
-        amount=converted_amount,
-        date=invoice_date,
-        notes=clean_description,
-        sponsored_by=clean_sponsor,
-    )
-    db.add(log)
-    db.flush()
     invoice = Invoice(
         project_id=project_id,
-        team_id=team_id,
-        budget_log_id=log.id,
+        team_id=None,
+        budget_log_id=None,
+        vendor=clean_vendor,
+        invoice_number=clean_number,
         description=clean_description,
         invoice_date=invoice_date,
         currency=currency_code,
-        original_amount=original_amount,
+        original_amount=0,
         exchange_rate_to_sgd=exchange_rate_to_sgd,
-        amount_sgd=converted_amount,
+        amount_sgd=0,
         original_filename=original_name,
         stored_filename=str(Path(str(project_id)) / stored_name),
         file_data=base64.b64encode(content).decode("ascii"),
         uploaded_at=datetime.utcnow(),
     )
     db.add(invoice)
+    db.flush()
+    clean_category = category.strip()
+    if original_amount > 0:
+        if not clean_category or len(clean_category) > 120:
+            raise HTTPException(400, "A category is required when importing an invoice total")
+        log = BudgetLog(
+            project_id=project_id,
+            team_id=team_id,
+            invoice_id=invoice.id,
+            category=clean_category,
+            currency=currency_code,
+            original_amount=original_amount,
+            exchange_rate_to_sgd=exchange_rate_to_sgd,
+            amount=amount_in_sgd(original_amount, exchange_rate_to_sgd),
+            date=invoice_date,
+            notes=clean_description,
+            sponsored_by=clean_sponsor,
+        )
+        db.add(log)
+        db.flush()
+        invoice.budget_log_id = log.id
+        refresh_invoice_totals(db, invoice)
     db.commit()
     db.refresh(invoice)
     await manager.broadcast("invoice.updated", {"project_id": project_id, "invoice_id": invoice.id})
     return invoice
+
+
+@router.patch("/invoices/{invoice_id}", response_model=InvoiceRead)
+async def update_invoice(invoice_id: int, payload: InvoiceUpdate, _: Writable, db: Session = Depends(get_db)):
+    invoice = db.get(Invoice, invoice_id)
+    if not invoice:
+        raise HTTPException(404, "Invoice not found")
+    updates = payload.model_dump(exclude_unset=True)
+    vendor = updates.get("vendor", invoice.vendor)
+    invoice_number = updates.get("invoice_number", invoice.invoice_number)
+    clean_vendor, clean_number = validate_invoice_identity(
+        db,
+        invoice.project_id,
+        vendor,
+        invoice_number,
+        exclude_invoice_id=invoice.id,
+    )
+    updates["vendor"] = clean_vendor
+    updates["invoice_number"] = clean_number
+    if "description" in updates:
+        updates["description"] = updates["description"].strip()
+    if "currency" in updates:
+        updates["currency"] = normalize_currency(updates["currency"])
+    for field, value in updates.items():
+        setattr(invoice, field, value)
+    for purchase in invoice.purchases:
+        purchase.currency = invoice.currency
+        purchase.exchange_rate_to_sgd = invoice.exchange_rate_to_sgd
+        purchase.amount = amount_in_sgd(purchase.original_amount, invoice.exchange_rate_to_sgd)
+        if invoice.invoice_date:
+            purchase.date = invoice.invoice_date
+    db.flush()
+    refresh_invoice_totals(db, invoice)
+    db.commit()
+    db.refresh(invoice)
+    await manager.broadcast("invoice.updated", {"project_id": invoice.project_id, "invoice_id": invoice.id})
+    await manager.broadcast("budget.updated", {"project_id": invoice.project_id})
+    return invoice
+
+
+@router.post("/invoices/{invoice_id}/purchases", response_model=BudgetLogRead)
+async def create_invoice_purchase(
+    invoice_id: int,
+    payload: InvoicePurchaseCreate,
+    _: Writable,
+    db: Session = Depends(get_db),
+):
+    invoice = db.get(Invoice, invoice_id)
+    if not invoice:
+        raise HTTPException(404, "Invoice not found")
+    category = payload.category.strip()
+    if not category:
+        raise HTTPException(400, "Purchase category is required")
+    purchase = BudgetLog(
+        project_id=invoice.project_id,
+        team_id=payload.team_id,
+        invoice_id=invoice.id,
+        category=category,
+        currency=invoice.currency,
+        original_amount=payload.original_amount,
+        exchange_rate_to_sgd=invoice.exchange_rate_to_sgd,
+        amount=amount_in_sgd(payload.original_amount, invoice.exchange_rate_to_sgd),
+        date=invoice.invoice_date or DateType.today(),
+        notes=payload.notes.strip(),
+        sponsored_by=payload.sponsored_by.strip(),
+    )
+    db.add(purchase)
+    db.flush()
+    refresh_invoice_totals(db, invoice)
+    db.commit()
+    db.refresh(purchase)
+    await manager.broadcast("invoice.updated", {"project_id": invoice.project_id, "invoice_id": invoice.id})
+    await manager.broadcast("budget.updated", {"project_id": invoice.project_id, "budget_log_id": purchase.id})
+    return purchase
 
 
 @router.get("/invoices/{invoice_id}/file")
@@ -896,20 +1039,17 @@ async def delete_invoice(invoice_id: int, _: Writable, db: Session = Depends(get
     if not invoice:
         raise HTTPException(404, "Invoice not found")
     project_id = invoice.project_id
-    budget_log_id = invoice.budget_log_id
+    purchase_ids = [purchase.id for purchase in invoice.purchases]
     path = (INVOICE_DIR / invoice.stored_filename).resolve() if invoice.stored_filename else None
-    db.delete(invoice)
+    invoice.budget_log_id = None
     db.flush()
-    if budget_log_id:
-        linked_log = db.get(BudgetLog, budget_log_id)
-        if linked_log:
-            db.delete(linked_log)
+    db.delete(invoice)
     db.commit()
     if path and str(path).startswith(str(INVOICE_DIR.resolve())) and path.exists():
         path.unlink()
     await manager.broadcast("invoice.updated", {"project_id": project_id, "invoice_id": invoice_id})
-    if budget_log_id:
-        await manager.broadcast("budget.updated", {"project_id": project_id, "budget_log_id": budget_log_id})
+    if purchase_ids:
+        await manager.broadcast("budget.updated", {"project_id": project_id})
     return Response(status_code=204)
 
 

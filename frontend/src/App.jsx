@@ -1515,14 +1515,26 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
   const isMaster = selectedTeam === "master";
   const defaultTeam = isMaster ? null : teamId || teams[0]?.id || null;
   const emptyBudgetDraft = { project_id: projectId, team_id: defaultTeam, category: "", currency: "SGD", original_amount: 0, exchange_rate_to_sgd: 1, date: today, notes: "", sponsored_by: "" };
+  const emptyInvoiceDraft = { vendor: "", invoice_number: "", description: "", invoice_date: today, currency: "SGD", exchange_rate_to_sgd: 1, file: null };
   const [budgetDraft, setBudgetDraft] = useState(emptyBudgetDraft);
   const [financeTab, setFinanceTab] = useState("expenses");
-  const [invoiceDraft, setInvoiceDraft] = useState({ team_id: defaultTeam, category: "", description: "", invoice_date: today, currency: "SGD", original_amount: 0, exchange_rate_to_sgd: 1, sponsored_by: "", file: null });
+  const [invoiceDraft, setInvoiceDraft] = useState(emptyInvoiceDraft);
   const [showPlan, setShowPlan] = useState(false);
+  const standaloneBudget = budget.filter((log) => !log.invoice_id);
+  const vendorGroups = useMemo(() => {
+    const groups = new Map();
+    invoices.forEach((invoice) => {
+      const vendor = invoice.vendor?.trim() || "Unassigned Vendor";
+      const key = vendor.toLocaleLowerCase();
+      if (!groups.has(key)) groups.set(key, { vendor, invoices: [] });
+      groups.get(key).invoices.push(invoice);
+    });
+    return [...groups.values()].sort((a, b) => a.vendor.localeCompare(b.vendor));
+  }, [invoices]);
 
   useEffect(() => {
     setBudgetDraft({ project_id: projectId, team_id: defaultTeam, category: "", currency: "SGD", original_amount: 0, exchange_rate_to_sgd: 1, date: today, notes: "", sponsored_by: "" });
-    setInvoiceDraft({ team_id: defaultTeam, category: "", description: "", invoice_date: today, currency: "SGD", original_amount: 0, exchange_rate_to_sgd: 1, sponsored_by: "", file: null });
+    setInvoiceDraft(emptyInvoiceDraft);
   }, [projectId, defaultTeam, selectedTeam]);
 
   async function addBudget(event) {
@@ -1568,13 +1580,16 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
 
   async function uploadInvoice(event) {
     event.preventDefault();
-    if (!invoiceDraft.category.trim() || !invoiceDraft.description.trim() || !invoiceDraft.file) return;
+    if (!invoiceDraft.vendor.trim() || !invoiceDraft.invoice_number.trim() || !invoiceDraft.description.trim() || !invoiceDraft.file) {
+      window.alert("Enter the vendor, invoice number, description, and PDF invoice.");
+      return;
+    }
     if (!/^[A-Z]{3}$/.test(invoiceDraft.currency.trim().toUpperCase())) {
       window.alert("Enter a three-letter currency code such as SGD, USD, or EUR.");
       return;
     }
-    if (Number(invoiceDraft.original_amount) <= 0 || Number(invoiceDraft.exchange_rate_to_sgd) <= 0) {
-      window.alert("Enter the invoice total and an SGD exchange rate greater than zero.");
+    if (Number(invoiceDraft.exchange_rate_to_sgd) <= 0) {
+      window.alert("Enter an SGD exchange rate greater than zero.");
       return;
     }
     if (invoiceDraft.file.type !== "application/pdf" || !invoiceDraft.file.name.toLowerCase().endsWith(".pdf")) {
@@ -1583,14 +1598,12 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
     }
     const form = new FormData();
     form.append("project_id", String(projectId));
-    if (invoiceDraft.team_id) form.append("team_id", String(invoiceDraft.team_id));
-    form.append("category", invoiceDraft.category.trim());
+    form.append("vendor", invoiceDraft.vendor.trim());
+    form.append("invoice_number", invoiceDraft.invoice_number.trim());
     form.append("description", invoiceDraft.description.trim());
     form.append("invoice_date", invoiceDraft.invoice_date);
     form.append("currency", invoiceDraft.currency.trim().toUpperCase());
-    form.append("original_amount", String(Number(invoiceDraft.original_amount)));
     form.append("exchange_rate_to_sgd", String(Number(invoiceDraft.exchange_rate_to_sgd)));
-    form.append("sponsored_by", invoiceDraft.sponsored_by.trim());
     form.append("file", invoiceDraft.file);
     try {
       const response = await fetch(`${getApiBase()}/invoices`, {
@@ -1599,7 +1612,7 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
         body: form,
       });
       if (!response.ok) throw new Error(await response.text() || "Invoice upload failed");
-      setInvoiceDraft({ team_id: defaultTeam, category: "", description: "", invoice_date: today, currency: "SGD", original_amount: 0, exchange_rate_to_sgd: 1, sponsored_by: "", file: null });
+      setInvoiceDraft(emptyInvoiceDraft);
       event.target.reset();
       await onRefresh();
     } catch (error) {
@@ -1630,8 +1643,18 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
   }
 
   async function deleteInvoice(invoice) {
-    if (!window.confirm(`Delete invoice "${invoice.description}" and its linked actual expense?`)) return;
+    if (!window.confirm(`Delete invoice ${invoice.invoice_number} from ${invoice.vendor} and all of its purchase lines?`)) return;
     await apiFetch(`/invoices/${invoice.id}`, token, { method: "DELETE" });
+    await onRefresh();
+  }
+
+  async function patchInvoice(invoiceId, patch) {
+    await apiFetch(`/invoices/${invoiceId}`, token, { method: "PATCH", body: JSON.stringify(patch) });
+    await onRefresh();
+  }
+
+  async function addInvoicePurchase(invoiceId, payload) {
+    await apiFetch(`/invoices/${invoiceId}/purchases`, token, { method: "POST", body: JSON.stringify(payload) });
     await onRefresh();
   }
 
@@ -1639,6 +1662,9 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
     <section className="stack">
       <datalist id="currency-code-options">
         {commonCurrencies.map((currency) => <option value={currency} key={currency} />)}
+      </datalist>
+      <datalist id="invoice-purchase-categories">
+        {['Materials', 'Shipping', 'Tax', 'Fees', 'Services', 'Discount'].map((category) => <option value={category} key={category} />)}
       </datalist>
       <div className="metrics-grid">
         <MetricButton label="Planned Budget" value={money(dashboard?.planned_budget)} detail="Open team allocation" onClick={() => setShowPlan(true)} />
@@ -1707,33 +1733,23 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
               <button className="budget-add-button">Add Expense</button>
             </form>}
             <div className="log-list">
-              {budget.map((log) => (
+              {standaloneBudget.map((log) => (
                 <BudgetLogCard key={log.id} log={log} teams={teams} isMaster={isMaster} canEdit={canEdit} onPatch={patchBudget} onDelete={deleteBudget} />
               ))}
-              {budget.length === 0 && <p className="empty-note">No actual expenses recorded yet.</p>}
+              {standaloneBudget.length === 0 && <p className="empty-note">No standalone expenses recorded yet.</p>}
             </div>
           </>
         ) : (
           <div className="invoice-panel">
             {canEdit && (
               <form className="invoice-form" onSubmit={uploadInvoice}>
-                {isMaster ? (
-                  <label className="compact-field">
-                    <span>Team</span>
-                    <select value={invoiceDraft.team_id || ""} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, team_id: event.target.value ? Number(event.target.value) : null })}>
-                      <option value="">General</option>
-                      {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
-                    </select>
-                  </label>
-                ) : (
-                  <label className="compact-field">
-                    <span>Team</span>
-                    <div className="locked-field">{teamName(teams, defaultTeam)}</div>
-                  </label>
-                )}
                 <label className="compact-field">
-                  <span>Category</span>
-                  <input placeholder="Material, service, fee..." value={invoiceDraft.category} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, category: event.target.value })} />
+                  <span>Vendor</span>
+                  <input placeholder="Vendor name" value={invoiceDraft.vendor} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, vendor: event.target.value })} />
+                </label>
+                <label className="compact-field">
+                  <span>Invoice Number</span>
+                  <input placeholder="Invoice number" value={invoiceDraft.invoice_number} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoice_number: event.target.value })} />
                 </label>
                 <label className="compact-field invoice-description-field">
                   <span>Description</span>
@@ -1748,20 +1764,8 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
                   <input list="currency-code-options" maxLength="3" value={invoiceDraft.currency} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, currency: event.target.value.toUpperCase() })} />
                 </label>
                 <label className="compact-field">
-                  <span>Invoice Total</span>
-                  <input type="number" min="0.01" step="0.01" value={invoiceDraft.original_amount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, original_amount: event.target.value })} />
-                </label>
-                <label className="compact-field">
                   <span>SGD Rate</span>
                   <input type="number" min="0.000001" step="0.000001" value={invoiceDraft.exchange_rate_to_sgd} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, exchange_rate_to_sgd: event.target.value })} />
-                </label>
-                <label className="compact-field">
-                  <span>SGD Equivalent</span>
-                  <div className="locked-field">{money(convertedSgd(invoiceDraft.original_amount, invoiceDraft.exchange_rate_to_sgd))}</div>
-                </label>
-                <label className="compact-field">
-                  <span>Sponsor</span>
-                  <input placeholder="Optional" value={invoiceDraft.sponsored_by} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, sponsored_by: event.target.value })} />
                 </label>
                 <label className="compact-field">
                   <span>PDF Invoice</span>
@@ -1770,20 +1774,35 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
                 <button>Upload Invoice</button>
               </form>
             )}
-            <div className="log-list">
-              {invoices.map((invoice) => (
-                <article className="budget-log-card" key={invoice.id}>
-                  <div>
-                    <strong>{invoice.description}</strong>
-                    <span>{teamCode(teams, invoice.team_id)} - {shortDate(invoice.invoice_date || invoice.uploaded_at?.slice(0, 10))}</span>
-                    <span>{currencyMoney(invoice.original_amount, invoice.currency)} x {Number(invoice.exchange_rate_to_sgd || 1).toFixed(6)} = {money(invoice.amount_sgd)}</span>
-                    <span>{invoice.original_filename}</span>
+            <div className="vendor-invoice-list">
+              {vendorGroups.map((group) => (
+                <section className="vendor-invoice-group" key={group.vendor.toLocaleLowerCase()}>
+                  <header className="vendor-heading">
+                    <div>
+                      <span>Vendor</span>
+                      <h3>{group.vendor}</h3>
+                    </div>
+                    <strong>{group.invoices.length} invoice{group.invoices.length === 1 ? "" : "s"}</strong>
+                  </header>
+                  <div className="vendor-invoices">
+                    {group.invoices.map((invoice) => (
+                      <InvoiceCard
+                        key={invoice.id}
+                        invoice={invoice}
+                        teams={teams}
+                        isMaster={isMaster}
+                        defaultTeam={defaultTeam}
+                        canEdit={canEdit}
+                        onView={viewInvoice}
+                        onDelete={deleteInvoice}
+                        onPatch={patchInvoice}
+                        onAddPurchase={addInvoicePurchase}
+                        onPatchPurchase={patchBudget}
+                        onDeletePurchase={deleteBudget}
+                      />
+                    ))}
                   </div>
-                  <div className="row-actions">
-                    <button type="button" onClick={() => viewInvoice(invoice)}>View PDF</button>
-                    {canEdit && <button className="danger-button" onClick={() => deleteInvoice(invoice)}>Delete</button>}
-                  </div>
-                </article>
+                </section>
               ))}
               {invoices.length === 0 && <p className="empty-note">No invoices uploaded yet.</p>}
             </div>
@@ -1804,6 +1823,185 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
         />
       )}
     </section>
+  );
+}
+
+function InvoiceCard({ invoice, teams, isMaster, defaultTeam, canEdit, onView, onDelete, onPatch, onAddPurchase, onPatchPurchase, onDeletePurchase }) {
+  const emptyPurchase = { team_id: defaultTeam, category: "Materials", original_amount: "", notes: "", sponsored_by: "" };
+  const [purchaseDraft, setPurchaseDraft] = useState(emptyPurchase);
+  const [editing, setEditing] = useState(false);
+  const [headerDraft, setHeaderDraft] = useState({
+    vendor: invoice.vendor,
+    invoice_number: invoice.invoice_number,
+    description: invoice.description,
+    invoice_date: invoice.invoice_date || today,
+    currency: invoice.currency || "SGD",
+    exchange_rate_to_sgd: invoice.exchange_rate_to_sgd || 1,
+  });
+
+  useEffect(() => {
+    setHeaderDraft({
+      vendor: invoice.vendor,
+      invoice_number: invoice.invoice_number,
+      description: invoice.description,
+      invoice_date: invoice.invoice_date || today,
+      currency: invoice.currency || "SGD",
+      exchange_rate_to_sgd: invoice.exchange_rate_to_sgd || 1,
+    });
+    setEditing(false);
+  }, [invoice]);
+
+  async function addPurchase(event) {
+    event.preventDefault();
+    if (!purchaseDraft.category.trim() || Number(purchaseDraft.original_amount) < 0 || purchaseDraft.original_amount === "") return;
+    await onAddPurchase(invoice.id, {
+      team_id: purchaseDraft.team_id ? Number(purchaseDraft.team_id) : null,
+      category: purchaseDraft.category.trim(),
+      original_amount: Number(purchaseDraft.original_amount),
+      notes: purchaseDraft.notes.trim(),
+      sponsored_by: purchaseDraft.sponsored_by.trim(),
+    });
+    setPurchaseDraft(emptyPurchase);
+  }
+
+  async function saveHeader() {
+    if (!headerDraft.vendor.trim() || !headerDraft.invoice_number.trim() || !headerDraft.description.trim()) return;
+    await onPatch(invoice.id, {
+      ...headerDraft,
+      vendor: headerDraft.vendor.trim(),
+      invoice_number: headerDraft.invoice_number.trim(),
+      description: headerDraft.description.trim(),
+      currency: headerDraft.currency.trim().toUpperCase(),
+      exchange_rate_to_sgd: Number(headerDraft.exchange_rate_to_sgd),
+    });
+    setEditing(false);
+  }
+
+  return (
+    <article className="invoice-card">
+      {editing ? (
+        <div className="invoice-header-edit">
+          <label className="compact-field"><span>Vendor</span><input value={headerDraft.vendor} onChange={(event) => setHeaderDraft({ ...headerDraft, vendor: event.target.value })} /></label>
+          <label className="compact-field"><span>Invoice Number</span><input value={headerDraft.invoice_number} onChange={(event) => setHeaderDraft({ ...headerDraft, invoice_number: event.target.value })} /></label>
+          <label className="compact-field invoice-description-field"><span>Description</span><input value={headerDraft.description} onChange={(event) => setHeaderDraft({ ...headerDraft, description: event.target.value })} /></label>
+          <label className="compact-field"><span>Date</span><input type="date" value={headerDraft.invoice_date} onChange={(event) => setHeaderDraft({ ...headerDraft, invoice_date: event.target.value })} /></label>
+          <label className="compact-field"><span>Currency</span><input list="currency-code-options" maxLength="3" value={headerDraft.currency} onChange={(event) => setHeaderDraft({ ...headerDraft, currency: event.target.value.toUpperCase() })} /></label>
+          <label className="compact-field"><span>SGD Rate</span><input type="number" min="0.000001" step="0.000001" value={headerDraft.exchange_rate_to_sgd} onChange={(event) => setHeaderDraft({ ...headerDraft, exchange_rate_to_sgd: event.target.value })} /></label>
+          <div className="row-actions invoice-edit-actions">
+            <button type="button" onClick={saveHeader}>Save</button>
+            <button type="button" onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <header className="invoice-card-header">
+          <div>
+            <span>Invoice {invoice.invoice_number}</span>
+            <h4>{invoice.description}</h4>
+            <p>{shortDate(invoice.invoice_date || invoice.uploaded_at?.slice(0, 10))} | {invoice.original_filename}</p>
+          </div>
+          <div className="invoice-totals">
+            <strong>{currencyMoney(invoice.original_amount, invoice.currency)}</strong>
+            <span>{money(invoice.amount_sgd)}</span>
+          </div>
+          <div className="row-actions invoice-header-actions">
+            <button type="button" onClick={() => onView(invoice)}>View PDF</button>
+            {canEdit && <button type="button" onClick={() => setEditing(true)}>Edit</button>}
+            {canEdit && <button type="button" className="danger-button" onClick={() => onDelete(invoice)}>Delete</button>}
+          </div>
+        </header>
+      )}
+
+      <div className="purchase-section-head">
+        <div>
+          <strong>Purchases and charges</strong>
+          <span>{invoice.currency} | 1 {invoice.currency} = {Number(invoice.exchange_rate_to_sgd || 1).toFixed(6)} SGD</span>
+        </div>
+        <span>{invoice.purchases?.length || 0} line{invoice.purchases?.length === 1 ? "" : "s"}</span>
+      </div>
+
+      {canEdit && (
+        <form className="invoice-purchase-form" onSubmit={addPurchase}>
+          {isMaster ? (
+            <label className="compact-field">
+              <span>Team</span>
+              <select value={purchaseDraft.team_id || ""} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, team_id: event.target.value ? Number(event.target.value) : null })}>
+                <option value="">General</option>
+                {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
+              </select>
+            </label>
+          ) : (
+            <label className="compact-field"><span>Team</span><div className="locked-field">{teamName(teams, defaultTeam)}</div></label>
+          )}
+          <label className="compact-field"><span>Category</span><input list="invoice-purchase-categories" value={purchaseDraft.category} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, category: event.target.value })} /></label>
+          <label className="compact-field purchase-description-field"><span>Purchase / Charge</span><input placeholder="Item, shipping, tax, fee..." value={purchaseDraft.notes} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, notes: event.target.value })} /></label>
+          <label className="compact-field"><span>Amount ({invoice.currency})</span><input type="number" min="0" step="0.01" value={purchaseDraft.original_amount} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, original_amount: event.target.value })} /></label>
+          <label className="compact-field"><span>Sponsor</span><input placeholder="Optional" value={purchaseDraft.sponsored_by} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, sponsored_by: event.target.value })} /></label>
+          <button>Add Purchase</button>
+        </form>
+      )}
+
+      <div className="invoice-purchase-list">
+        <div className="invoice-purchase-labels" aria-hidden="true">
+          <span>Team</span><span>Category</span><span>Purchase / Charge</span><span>Original</span><span>SGD</span><span>Sponsor</span><span></span>
+        </div>
+        {(invoice.purchases || []).map((purchase) => (
+          <InvoicePurchaseRow key={purchase.id} purchase={purchase} teams={teams} isMaster={isMaster} canEdit={canEdit} onPatch={onPatchPurchase} onDelete={onDeletePurchase} />
+        ))}
+        {(!invoice.purchases || invoice.purchases.length === 0) && <p className="empty-note invoice-empty-purchases">No purchases recorded for this invoice yet.</p>}
+      </div>
+    </article>
+  );
+}
+
+function InvoicePurchaseRow({ purchase, teams, isMaster, canEdit, onPatch, onDelete }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ team_id: purchase.team_id, category: purchase.category, original_amount: purchase.original_amount, notes: purchase.notes || "", sponsored_by: purchase.sponsored_by || "" });
+
+  useEffect(() => {
+    setDraft({ team_id: purchase.team_id, category: purchase.category, original_amount: purchase.original_amount, notes: purchase.notes || "", sponsored_by: purchase.sponsored_by || "" });
+    setEditing(false);
+  }, [purchase]);
+
+  async function save() {
+    await onPatch(purchase.id, {
+      team_id: draft.team_id ? Number(draft.team_id) : null,
+      category: draft.category.trim(),
+      original_amount: Number(draft.original_amount),
+      notes: draft.notes.trim(),
+      sponsored_by: draft.sponsored_by.trim(),
+    });
+    setEditing(false);
+  }
+
+  return (
+    <div className={`invoice-purchase-row${editing ? " editing" : ""}`}>
+      {editing ? (
+        <>
+          {isMaster ? (
+            <select aria-label="Team" value={draft.team_id || ""} onChange={(event) => setDraft({ ...draft, team_id: event.target.value ? Number(event.target.value) : null })}>
+              <option value="">General</option>
+              {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
+            </select>
+          ) : <span>{teamCode(teams, purchase.team_id)}</span>}
+          <input aria-label="Category" list="invoice-purchase-categories" value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} />
+          <input aria-label="Purchase or charge" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
+          <input aria-label="Original amount" type="number" min="0" step="0.01" value={draft.original_amount} onChange={(event) => setDraft({ ...draft, original_amount: event.target.value })} />
+          <strong>{money(convertedSgd(draft.original_amount, purchase.exchange_rate_to_sgd))}</strong>
+          <input aria-label="Sponsor" placeholder="Optional" value={draft.sponsored_by} onChange={(event) => setDraft({ ...draft, sponsored_by: event.target.value })} />
+          <div className="row-actions"><button type="button" onClick={save}>Save</button><button type="button" onClick={() => setEditing(false)}>Cancel</button></div>
+        </>
+      ) : (
+        <>
+          <span>{teamCode(teams, purchase.team_id)}</span>
+          <strong>{purchase.category}</strong>
+          <span>{purchase.notes || "No description"}</span>
+          <span>{currencyMoney(purchase.original_amount, purchase.currency)}</span>
+          <strong>{money(purchase.amount)}</strong>
+          <span>{purchase.sponsored_by || "-"}</span>
+          {canEdit ? <div className="row-actions"><button type="button" onClick={() => setEditing(true)}>Edit</button><button type="button" className="danger-button" onClick={() => onDelete(purchase)}>Delete</button></div> : <span />}
+        </>
+      )}
+    </div>
   );
 }
 

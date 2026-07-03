@@ -83,6 +83,7 @@ def run_sqlite_migrations():
         "budget_logs.currency": "ALTER TABLE budget_logs ADD COLUMN currency VARCHAR(3) DEFAULT 'SGD' NOT NULL",
         "budget_logs.original_amount": "ALTER TABLE budget_logs ADD COLUMN original_amount FLOAT DEFAULT 0 NOT NULL",
         "budget_logs.exchange_rate_to_sgd": "ALTER TABLE budget_logs ADD COLUMN exchange_rate_to_sgd FLOAT DEFAULT 1 NOT NULL",
+        "budget_logs.invoice_id": "ALTER TABLE budget_logs ADD COLUMN invoice_id INTEGER REFERENCES invoices(id)",
         "users.team_id": "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
         "invoices.file_data": "ALTER TABLE invoices ADD COLUMN file_data TEXT DEFAULT '' NOT NULL",
         "invoices.budget_log_id": "ALTER TABLE invoices ADD COLUMN budget_log_id INTEGER REFERENCES budget_logs(id)",
@@ -91,6 +92,8 @@ def run_sqlite_migrations():
         "invoices.original_amount": "ALTER TABLE invoices ADD COLUMN original_amount FLOAT DEFAULT 0 NOT NULL",
         "invoices.exchange_rate_to_sgd": "ALTER TABLE invoices ADD COLUMN exchange_rate_to_sgd FLOAT DEFAULT 1 NOT NULL",
         "invoices.amount_sgd": "ALTER TABLE invoices ADD COLUMN amount_sgd FLOAT DEFAULT 0 NOT NULL",
+        "invoices.vendor": "ALTER TABLE invoices ADD COLUMN vendor VARCHAR(160) DEFAULT '' NOT NULL",
+        "invoices.invoice_number": "ALTER TABLE invoices ADD COLUMN invoice_number VARCHAR(120) DEFAULT '' NOT NULL",
     }
     create_statements = {
         "invoices": """
@@ -99,6 +102,8 @@ def run_sqlite_migrations():
                 project_id INTEGER NOT NULL REFERENCES projects(id),
                 team_id INTEGER REFERENCES teams(id),
                 budget_log_id INTEGER REFERENCES budget_logs(id),
+                vendor VARCHAR(160) DEFAULT '' NOT NULL,
+                invoice_number VARCHAR(120) DEFAULT '' NOT NULL,
                 description VARCHAR(220) NOT NULL,
                 invoice_date DATE,
                 currency VARCHAR(3) DEFAULT 'SGD' NOT NULL,
@@ -126,6 +131,21 @@ def run_sqlite_migrations():
                 connection.execute(text(statement))
         if "budget_logs" in existing_tables:
             connection.execute(text("UPDATE budget_logs SET original_amount = amount WHERE original_amount = 0 AND amount <> 0"))
+        if "invoices" in existing_tables:
+            connection.execute(text("UPDATE invoices SET vendor = 'Unassigned Vendor' WHERE TRIM(COALESCE(vendor, '')) = ''"))
+            connection.execute(text("UPDATE invoices SET invoice_number = 'INV-' || id WHERE TRIM(COALESCE(invoice_number, '')) = ''"))
+        if "budget_logs" in existing_tables and "invoices" in existing_tables:
+            connection.execute(
+                text(
+                    """
+                    UPDATE budget_logs
+                    SET invoice_id = (SELECT invoices.id FROM invoices WHERE invoices.budget_log_id = budget_logs.id)
+                    WHERE invoice_id IS NULL
+                      AND EXISTS (SELECT 1 FROM invoices WHERE invoices.budget_log_id = budget_logs.id)
+                    """
+                )
+            )
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_budget_logs_invoice_id ON budget_logs (invoice_id)"))
 
 
 def run_postgres_migrations():
@@ -153,6 +173,7 @@ def run_postgres_migrations():
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'SGD' NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS original_amount DOUBLE PRECISION DEFAULT 0 NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS exchange_rate_to_sgd DOUBLE PRECISION DEFAULT 1 NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS invoice_id INTEGER REFERENCES invoices(id)"))
         connection.execute(text("UPDATE budget_logs SET original_amount = amount WHERE original_amount = 0 AND amount <> 0"))
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS budget_log_id INTEGER REFERENCES budget_logs(id)"))
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS invoice_date DATE"))
@@ -160,3 +181,19 @@ def run_postgres_migrations():
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS original_amount DOUBLE PRECISION DEFAULT 0 NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS exchange_rate_to_sgd DOUBLE PRECISION DEFAULT 1 NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS amount_sgd DOUBLE PRECISION DEFAULT 0 NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS vendor VARCHAR(160) DEFAULT '' NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(120) DEFAULT '' NOT NULL"))
+        connection.execute(text("UPDATE invoices SET vendor = 'Unassigned Vendor' WHERE BTRIM(COALESCE(vendor, '')) = ''"))
+        connection.execute(text("UPDATE invoices SET invoice_number = 'INV-' || id::text WHERE BTRIM(COALESCE(invoice_number, '')) = ''"))
+        connection.execute(
+            text(
+                """
+                UPDATE budget_logs
+                SET invoice_id = invoices.id
+                FROM invoices
+                WHERE budget_logs.invoice_id IS NULL
+                  AND invoices.budget_log_id = budget_logs.id
+                """
+            )
+        )
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_budget_logs_invoice_id ON budget_logs (invoice_id)"))

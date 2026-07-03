@@ -232,6 +232,24 @@ class BudgetLogRead(BudgetLogBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    invoice_id: int | None = None
+
+
+class InvoicePurchaseCreate(BaseModel):
+    team_id: int | None = None
+    category: str = Field(min_length=1, max_length=120)
+    original_amount: float = Field(ge=0)
+    notes: str = ""
+    sponsored_by: str = ""
+
+
+class InvoiceUpdate(BaseModel):
+    vendor: str | None = Field(default=None, min_length=1, max_length=160)
+    invoice_number: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, min_length=1, max_length=220)
+    invoice_date: DateType | None = None
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    exchange_rate_to_sgd: float | None = Field(default=None, gt=0)
 
 
 class InvoiceRead(BaseModel):
@@ -241,6 +259,8 @@ class InvoiceRead(BaseModel):
     project_id: int
     team_id: int | None = None
     budget_log_id: int | None = None
+    vendor: str
+    invoice_number: str
     description: str
     invoice_date: DateType | None = None
     currency: str = "SGD"
@@ -249,6 +269,7 @@ class InvoiceRead(BaseModel):
     amount_sgd: float = 0
     original_filename: str
     uploaded_at: datetime
+    purchases: list[BudgetLogRead] = Field(default_factory=list)
 
 
 class SponsorBase(BaseModel):

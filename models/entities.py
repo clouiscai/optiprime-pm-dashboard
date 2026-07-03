@@ -132,6 +132,7 @@ class BudgetLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True, index=True)
+    invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), nullable=True, index=True)
     category: Mapped[str] = mapped_column(String(120), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="SGD")
     original_amount: Mapped[float] = mapped_column(Float, default=0.0)
@@ -143,6 +144,10 @@ class BudgetLog(Base):
 
     project: Mapped[Project] = relationship(back_populates="budget_logs")
     team: Mapped[Team | None] = relationship(back_populates="budget_logs")
+    invoice: Mapped["Invoice | None"] = relationship(
+        back_populates="purchases",
+        foreign_keys=[invoice_id],
+    )
 
 
 class Invoice(Base):
@@ -152,6 +157,8 @@ class Invoice(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True, index=True)
     budget_log_id: Mapped[int | None] = mapped_column(ForeignKey("budget_logs.id"), nullable=True, index=True)
+    vendor: Mapped[str] = mapped_column(String(160), default="")
+    invoice_number: Mapped[str] = mapped_column(String(120), default="")
     description: Mapped[str] = mapped_column(String(220), nullable=False)
     invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="SGD")
@@ -165,6 +172,12 @@ class Invoice(Base):
 
     project: Mapped[Project] = relationship()
     team: Mapped[Team | None] = relationship()
+    purchases: Mapped[list[BudgetLog]] = relationship(
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        foreign_keys="BudgetLog.invoice_id",
+        order_by="BudgetLog.id",
+    )
 
 
 class Sponsor(Base):
