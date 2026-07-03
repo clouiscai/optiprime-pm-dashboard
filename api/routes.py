@@ -8,7 +8,8 @@ from collections import defaultdict, deque
 from pathlib import Path
 from threading import Lock
 from uuid import uuid4
-from datetime import datetime
+from datetime import date as DateType, datetime
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
@@ -117,6 +118,22 @@ def write_csv(rows: list[dict], fieldnames: list[str], filename: str) -> Respons
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def normalize_currency(value: str) -> str:
+    currency = value.strip().upper()
+    if len(currency) != 3 or not currency.isalpha():
+        raise HTTPException(400, "Currency must be a three-letter code such as SGD, USD, or EUR")
+    return currency
+
+
+def amount_in_sgd(original_amount: float, exchange_rate_to_sgd: float) -> float:
+    if original_amount < 0:
+        raise HTTPException(400, "Amount cannot be negative")
+    if exchange_rate_to_sgd <= 0:
+        raise HTTPException(400, "Exchange rate must be greater than zero")
+    converted = Decimal(str(original_amount)) * Decimal(str(exchange_rate_to_sgd))
+    return float(converted.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def normalize_bom_item_versions(db: Session, item: BOMItem) -> bool:
@@ -707,7 +724,12 @@ def list_budget_logs(project_id: int, _: Protected, team_id: int | None = None, 
 @router.post("/budget", response_model=BudgetLogRead)
 async def create_budget_log(payload: BudgetLogCreate, _: Writable, db: Session = Depends(get_db)):
     get_project_or_404(db, payload.project_id)
-    log = BudgetLog(**payload.model_dump())
+    values = payload.model_dump()
+    original_amount = payload.original_amount if payload.original_amount is not None else payload.amount
+    values["currency"] = normalize_currency(payload.currency)
+    values["original_amount"] = original_amount
+    values["amount"] = amount_in_sgd(original_amount, payload.exchange_rate_to_sgd)
+    log = BudgetLog(**values)
     db.add(log)
     db.commit()
     db.refresh(log)
@@ -720,7 +742,17 @@ async def update_budget_log(log_id: int, payload: BudgetLogUpdate, _: Writable, 
     log = db.get(BudgetLog, log_id)
     if not log:
         raise HTTPException(404, "Budget log not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    currency = normalize_currency(updates.get("currency", log.currency))
+    exchange_rate = updates.get("exchange_rate_to_sgd", log.exchange_rate_to_sgd)
+    original_amount = updates.get("original_amount")
+    if original_amount is None:
+        original_amount = updates.get("amount", log.original_amount or log.amount)
+    updates["currency"] = currency
+    updates["original_amount"] = original_amount
+    updates["exchange_rate_to_sgd"] = exchange_rate
+    updates["amount"] = amount_in_sgd(original_amount, exchange_rate)
+    for field, value in updates.items():
         setattr(log, field, value)
     db.commit()
     db.refresh(log)
@@ -734,6 +766,7 @@ async def delete_budget_log(log_id: int, _: Writable, db: Session = Depends(get_
     if not log:
         raise HTTPException(404, "Budget log not found")
     project_id = log.project_id
+    db.query(Invoice).filter(Invoice.budget_log_id == log.id).update({Invoice.budget_log_id: None}, synchronize_session=False)
     db.delete(log)
     db.commit()
     await manager.broadcast("budget.updated", {"project_id": project_id})
@@ -751,7 +784,14 @@ def list_invoices(project_id: int, _: Protected, db: Session = Depends(get_db)):
 async def upload_invoice(
     _: Writable,
     project_id: int = Form(...),
+    team_id: int | None = Form(None),
+    category: str = Form(...),
     description: str = Form(...),
+    invoice_date: DateType = Form(...),
+    currency: str = Form("SGD"),
+    original_amount: float = Form(...),
+    exchange_rate_to_sgd: float = Form(1),
+    sponsored_by: str = Form(""),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
@@ -771,12 +811,38 @@ async def upload_invoice(
     if not content.startswith(b"%PDF"):
         raise HTTPException(400, "Only valid PDF invoices are accepted")
 
+    clean_category = category.strip()
+    if not clean_category or len(clean_category) > 120:
+        raise HTTPException(400, "Invoice category must be between 1 and 120 characters")
+    currency_code = normalize_currency(currency)
+    converted_amount = amount_in_sgd(original_amount, exchange_rate_to_sgd)
+    clean_sponsor = sponsored_by.strip()
     stored_name = f"{uuid4().hex}.pdf"
 
+    log = BudgetLog(
+        project_id=project_id,
+        team_id=team_id,
+        category=clean_category,
+        currency=currency_code,
+        original_amount=original_amount,
+        exchange_rate_to_sgd=exchange_rate_to_sgd,
+        amount=converted_amount,
+        date=invoice_date,
+        notes=clean_description,
+        sponsored_by=clean_sponsor,
+    )
+    db.add(log)
+    db.flush()
     invoice = Invoice(
         project_id=project_id,
-        team_id=None,
+        team_id=team_id,
+        budget_log_id=log.id,
         description=clean_description,
+        invoice_date=invoice_date,
+        currency=currency_code,
+        original_amount=original_amount,
+        exchange_rate_to_sgd=exchange_rate_to_sgd,
+        amount_sgd=converted_amount,
         original_filename=original_name,
         stored_filename=str(Path(str(project_id)) / stored_name),
         file_data=base64.b64encode(content).decode("ascii"),
@@ -830,12 +896,20 @@ async def delete_invoice(invoice_id: int, _: Writable, db: Session = Depends(get
     if not invoice:
         raise HTTPException(404, "Invoice not found")
     project_id = invoice.project_id
+    budget_log_id = invoice.budget_log_id
     path = (INVOICE_DIR / invoice.stored_filename).resolve() if invoice.stored_filename else None
     db.delete(invoice)
+    db.flush()
+    if budget_log_id:
+        linked_log = db.get(BudgetLog, budget_log_id)
+        if linked_log:
+            db.delete(linked_log)
     db.commit()
     if path and str(path).startswith(str(INVOICE_DIR.resolve())) and path.exists():
         path.unlink()
     await manager.broadcast("invoice.updated", {"project_id": project_id, "invoice_id": invoice_id})
+    if budget_log_id:
+        await manager.broadcast("budget.updated", {"project_id": project_id, "budget_log_id": budget_log_id})
     return Response(status_code=204)
 
 

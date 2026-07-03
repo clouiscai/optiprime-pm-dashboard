@@ -203,7 +203,10 @@ class BudgetLogBase(BaseModel):
     project_id: int
     team_id: int | None = None
     category: str
-    amount: float
+    currency: str = Field(default="SGD", min_length=3, max_length=3)
+    original_amount: float | None = Field(default=None, ge=0)
+    exchange_rate_to_sgd: float = Field(default=1, gt=0)
+    amount: float = Field(default=0, ge=0)
     date: DateType
     notes: str = ""
     sponsored_by: str = ""
@@ -216,7 +219,10 @@ class BudgetLogCreate(BudgetLogBase):
 class BudgetLogUpdate(BaseModel):
     team_id: int | None = None
     category: str | None = None
-    amount: float | None = None
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    original_amount: float | None = Field(default=None, ge=0)
+    exchange_rate_to_sgd: float | None = Field(default=None, gt=0)
+    amount: float | None = Field(default=None, ge=0)
     date: DateType | None = None
     notes: str | None = None
     sponsored_by: str | None = None
@@ -234,7 +240,13 @@ class InvoiceRead(BaseModel):
     id: int
     project_id: int
     team_id: int | None = None
+    budget_log_id: int | None = None
     description: str
+    invoice_date: DateType | None = None
+    currency: str = "SGD"
+    original_amount: float = 0
+    exchange_rate_to_sgd: float = 1
+    amount_sgd: float = 0
     original_filename: str
     uploaded_at: datetime
 

@@ -15,6 +15,7 @@ const teamColors = {
   UUV: "#1f2329",
   General: "#64748b",
 };
+const commonCurrencies = ["SGD", "USD", "EUR", "GBP", "JPY", "CNY", "AUD", "CAD", "CHF", "HKD", "MYR", "NZD", "THB", "TWD"];
 
 const today = new Date().toISOString().slice(0, 10);
 const dayMs = 24 * 60 * 60 * 1000;
@@ -53,6 +54,16 @@ function shortDate(value) {
 function money(value) {
   const amount = new Intl.NumberFormat("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
   return `SGD ${amount}`;
+}
+
+function currencyMoney(value, currency = "SGD") {
+  const code = (currency || "SGD").trim().toUpperCase();
+  const amount = new Intl.NumberFormat("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(value || 0);
+  return `${code} ${amount}`;
+}
+
+function convertedSgd(originalAmount, exchangeRate) {
+  return Math.round((Number(originalAmount || 0) * Number(exchangeRate || 0) + Number.EPSILON) * 100) / 100;
 }
 
 function priorityClass(value) {
@@ -1503,33 +1514,44 @@ function Bom({ projectId, teamId, selectedTeam, token, teams, dashboard, bom, ca
 function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, budget, invoices, canEdit, onRefresh }) {
   const isMaster = selectedTeam === "master";
   const defaultTeam = isMaster ? null : teamId || teams[0]?.id || null;
-  const emptyBudgetDraft = { project_id: projectId, team_id: defaultTeam, category: "", amount: 0, date: today, notes: "", sponsored_by: "" };
+  const emptyBudgetDraft = { project_id: projectId, team_id: defaultTeam, category: "", currency: "SGD", original_amount: 0, exchange_rate_to_sgd: 1, date: today, notes: "", sponsored_by: "" };
   const [budgetDraft, setBudgetDraft] = useState(emptyBudgetDraft);
   const [financeTab, setFinanceTab] = useState("expenses");
-  const [invoiceDraft, setInvoiceDraft] = useState({ description: "", file: null });
+  const [invoiceDraft, setInvoiceDraft] = useState({ team_id: defaultTeam, category: "", description: "", invoice_date: today, currency: "SGD", original_amount: 0, exchange_rate_to_sgd: 1, sponsored_by: "", file: null });
   const [showPlan, setShowPlan] = useState(false);
 
   useEffect(() => {
-    setBudgetDraft({ project_id: projectId, team_id: defaultTeam, category: "", amount: 0, date: today, notes: "", sponsored_by: "" });
-    setInvoiceDraft({ description: "", file: null });
+    setBudgetDraft({ project_id: projectId, team_id: defaultTeam, category: "", currency: "SGD", original_amount: 0, exchange_rate_to_sgd: 1, date: today, notes: "", sponsored_by: "" });
+    setInvoiceDraft({ team_id: defaultTeam, category: "", description: "", invoice_date: today, currency: "SGD", original_amount: 0, exchange_rate_to_sgd: 1, sponsored_by: "", file: null });
   }, [projectId, defaultTeam, selectedTeam]);
 
   async function addBudget(event) {
     event.preventDefault();
     if (!budgetDraft.category.trim()) return;
+    if (!/^[A-Z]{3}$/.test(budgetDraft.currency.trim().toUpperCase())) {
+      window.alert("Enter a three-letter currency code such as SGD, USD, or EUR.");
+      return;
+    }
+    if (Number(budgetDraft.original_amount) < 0 || Number(budgetDraft.exchange_rate_to_sgd) <= 0) {
+      window.alert("Enter a valid amount and an SGD exchange rate greater than zero.");
+      return;
+    }
     await apiFetch("/budget", token, {
       method: "POST",
       body: JSON.stringify({
         project_id: projectId,
         team_id: budgetDraft.team_id ? Number(budgetDraft.team_id) : null,
         category: budgetDraft.category.trim(),
-        amount: Number(budgetDraft.amount),
+        currency: budgetDraft.currency.trim().toUpperCase(),
+        original_amount: Number(budgetDraft.original_amount),
+        exchange_rate_to_sgd: Number(budgetDraft.exchange_rate_to_sgd),
+        amount: convertedSgd(budgetDraft.original_amount, budgetDraft.exchange_rate_to_sgd),
         date: budgetDraft.date,
         notes: budgetDraft.notes.trim(),
         sponsored_by: budgetDraft.sponsored_by.trim(),
       }),
     });
-    setBudgetDraft({ project_id: projectId, team_id: defaultTeam, category: "", amount: 0, date: today, notes: "", sponsored_by: "" });
+    setBudgetDraft({ project_id: projectId, team_id: defaultTeam, category: "", currency: "SGD", original_amount: 0, exchange_rate_to_sgd: 1, date: today, notes: "", sponsored_by: "" });
     await onRefresh();
   }
 
@@ -1546,14 +1568,29 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
 
   async function uploadInvoice(event) {
     event.preventDefault();
-    if (!invoiceDraft.description.trim() || !invoiceDraft.file) return;
+    if (!invoiceDraft.category.trim() || !invoiceDraft.description.trim() || !invoiceDraft.file) return;
+    if (!/^[A-Z]{3}$/.test(invoiceDraft.currency.trim().toUpperCase())) {
+      window.alert("Enter a three-letter currency code such as SGD, USD, or EUR.");
+      return;
+    }
+    if (Number(invoiceDraft.original_amount) <= 0 || Number(invoiceDraft.exchange_rate_to_sgd) <= 0) {
+      window.alert("Enter the invoice total and an SGD exchange rate greater than zero.");
+      return;
+    }
     if (invoiceDraft.file.type !== "application/pdf" || !invoiceDraft.file.name.toLowerCase().endsWith(".pdf")) {
       window.alert("Only PDF invoices are accepted.");
       return;
     }
     const form = new FormData();
     form.append("project_id", String(projectId));
+    if (invoiceDraft.team_id) form.append("team_id", String(invoiceDraft.team_id));
+    form.append("category", invoiceDraft.category.trim());
     form.append("description", invoiceDraft.description.trim());
+    form.append("invoice_date", invoiceDraft.invoice_date);
+    form.append("currency", invoiceDraft.currency.trim().toUpperCase());
+    form.append("original_amount", String(Number(invoiceDraft.original_amount)));
+    form.append("exchange_rate_to_sgd", String(Number(invoiceDraft.exchange_rate_to_sgd)));
+    form.append("sponsored_by", invoiceDraft.sponsored_by.trim());
     form.append("file", invoiceDraft.file);
     try {
       const response = await fetch(`${getApiBase()}/invoices`, {
@@ -1562,7 +1599,7 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
         body: form,
       });
       if (!response.ok) throw new Error(await response.text() || "Invoice upload failed");
-      setInvoiceDraft({ description: "", file: null });
+      setInvoiceDraft({ team_id: defaultTeam, category: "", description: "", invoice_date: today, currency: "SGD", original_amount: 0, exchange_rate_to_sgd: 1, sponsored_by: "", file: null });
       event.target.reset();
       await onRefresh();
     } catch (error) {
@@ -1593,13 +1630,16 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
   }
 
   async function deleteInvoice(invoice) {
-    if (!window.confirm(`Delete invoice "${invoice.description}"?`)) return;
+    if (!window.confirm(`Delete invoice "${invoice.description}" and its linked actual expense?`)) return;
     await apiFetch(`/invoices/${invoice.id}`, token, { method: "DELETE" });
     await onRefresh();
   }
 
   return (
     <section className="stack">
+      <datalist id="currency-code-options">
+        {commonCurrencies.map((currency) => <option value={currency} key={currency} />)}
+      </datalist>
       <div className="metrics-grid">
         <MetricButton label="Planned Budget" value={money(dashboard?.planned_budget)} detail="Open team allocation" onClick={() => setShowPlan(true)} />
         <Metric label="Actual Spending" value={money(dashboard?.actual_spend)} detail="Recorded non-sponsored expenses" />
@@ -1637,8 +1677,20 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
                 <input placeholder="Material, service, fee, tax..." value={budgetDraft.category} onChange={(event) => setBudgetDraft({ ...budgetDraft, category: event.target.value })} />
               </label>
               <label className="compact-field">
-                <span>Amount (SGD)</span>
-                <input type="number" min="0" step="0.01" value={budgetDraft.amount} onChange={(event) => setBudgetDraft({ ...budgetDraft, amount: event.target.value })} />
+                <span>Currency</span>
+                <input list="currency-code-options" maxLength="3" value={budgetDraft.currency} onChange={(event) => setBudgetDraft({ ...budgetDraft, currency: event.target.value.toUpperCase() })} />
+              </label>
+              <label className="compact-field">
+                <span>Original Amount</span>
+                <input type="number" min="0" step="0.01" value={budgetDraft.original_amount} onChange={(event) => setBudgetDraft({ ...budgetDraft, original_amount: event.target.value })} />
+              </label>
+              <label className="compact-field">
+                <span>SGD Rate</span>
+                <input type="number" min="0.000001" step="0.000001" value={budgetDraft.exchange_rate_to_sgd} onChange={(event) => setBudgetDraft({ ...budgetDraft, exchange_rate_to_sgd: event.target.value })} />
+              </label>
+              <label className="compact-field">
+                <span>SGD Equivalent</span>
+                <div className="locked-field">{money(convertedSgd(budgetDraft.original_amount, budgetDraft.exchange_rate_to_sgd))}</div>
               </label>
               <label className="compact-field">
                 <span>Date</span>
@@ -1665,9 +1717,51 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
           <div className="invoice-panel">
             {canEdit && (
               <form className="invoice-form" onSubmit={uploadInvoice}>
+                {isMaster ? (
+                  <label className="compact-field">
+                    <span>Team</span>
+                    <select value={invoiceDraft.team_id || ""} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, team_id: event.target.value ? Number(event.target.value) : null })}>
+                      <option value="">General</option>
+                      {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
+                    </select>
+                  </label>
+                ) : (
+                  <label className="compact-field">
+                    <span>Team</span>
+                    <div className="locked-field">{teamName(teams, defaultTeam)}</div>
+                  </label>
+                )}
+                <label className="compact-field">
+                  <span>Category</span>
+                  <input placeholder="Material, service, fee..." value={invoiceDraft.category} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, category: event.target.value })} />
+                </label>
                 <label className="compact-field invoice-description-field">
                   <span>Description</span>
                   <input placeholder="Invoice description" value={invoiceDraft.description} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, description: event.target.value })} />
+                </label>
+                <label className="compact-field">
+                  <span>Invoice Date</span>
+                  <input type="date" value={invoiceDraft.invoice_date} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoice_date: event.target.value })} />
+                </label>
+                <label className="compact-field">
+                  <span>Currency</span>
+                  <input list="currency-code-options" maxLength="3" value={invoiceDraft.currency} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, currency: event.target.value.toUpperCase() })} />
+                </label>
+                <label className="compact-field">
+                  <span>Invoice Total</span>
+                  <input type="number" min="0.01" step="0.01" value={invoiceDraft.original_amount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, original_amount: event.target.value })} />
+                </label>
+                <label className="compact-field">
+                  <span>SGD Rate</span>
+                  <input type="number" min="0.000001" step="0.000001" value={invoiceDraft.exchange_rate_to_sgd} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, exchange_rate_to_sgd: event.target.value })} />
+                </label>
+                <label className="compact-field">
+                  <span>SGD Equivalent</span>
+                  <div className="locked-field">{money(convertedSgd(invoiceDraft.original_amount, invoiceDraft.exchange_rate_to_sgd))}</div>
+                </label>
+                <label className="compact-field">
+                  <span>Sponsor</span>
+                  <input placeholder="Optional" value={invoiceDraft.sponsored_by} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, sponsored_by: event.target.value })} />
                 </label>
                 <label className="compact-field">
                   <span>PDF Invoice</span>
@@ -1681,7 +1775,9 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
                 <article className="budget-log-card" key={invoice.id}>
                   <div>
                     <strong>{invoice.description}</strong>
-                    <span>{invoice.original_filename} - {shortDate(invoice.uploaded_at?.slice(0, 10))}</span>
+                    <span>{teamCode(teams, invoice.team_id)} - {shortDate(invoice.invoice_date || invoice.uploaded_at?.slice(0, 10))}</span>
+                    <span>{currencyMoney(invoice.original_amount, invoice.currency)} x {Number(invoice.exchange_rate_to_sgd || 1).toFixed(6)} = {money(invoice.amount_sgd)}</span>
+                    <span>{invoice.original_filename}</span>
                   </div>
                   <div className="row-actions">
                     <button type="button" onClick={() => viewInvoice(invoice)}>View PDF</button>
@@ -1713,10 +1809,10 @@ function Finance({ projectId, teamId, selectedTeam, token, teams, dashboard, bud
 
 function BudgetLogCard({ log, teams, isMaster, canEdit, onPatch, onDelete }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({ team_id: log.team_id, category: log.category, amount: log.amount, date: log.date, notes: log.notes || "", sponsored_by: log.sponsored_by || "" });
+  const [draft, setDraft] = useState({ team_id: log.team_id, category: log.category, currency: log.currency || "SGD", original_amount: log.original_amount ?? log.amount, exchange_rate_to_sgd: log.exchange_rate_to_sgd || 1, date: log.date, notes: log.notes || "", sponsored_by: log.sponsored_by || "" });
 
   useEffect(() => {
-    setDraft({ team_id: log.team_id, category: log.category, amount: log.amount, date: log.date, notes: log.notes || "", sponsored_by: log.sponsored_by || "" });
+    setDraft({ team_id: log.team_id, category: log.category, currency: log.currency || "SGD", original_amount: log.original_amount ?? log.amount, exchange_rate_to_sgd: log.exchange_rate_to_sgd || 1, date: log.date, notes: log.notes || "", sponsored_by: log.sponsored_by || "" });
     setEditing(false);
   }, [log]);
 
@@ -1724,7 +1820,10 @@ function BudgetLogCard({ log, teams, isMaster, canEdit, onPatch, onDelete }) {
     await onPatch(log.id, {
       team_id: draft.team_id ? Number(draft.team_id) : null,
       category: draft.category.trim(),
-      amount: Number(draft.amount),
+      currency: draft.currency.trim().toUpperCase(),
+      original_amount: Number(draft.original_amount),
+      exchange_rate_to_sgd: Number(draft.exchange_rate_to_sgd),
+      amount: convertedSgd(draft.original_amount, draft.exchange_rate_to_sgd),
       date: draft.date,
       notes: draft.notes.trim(),
       sponsored_by: draft.sponsored_by.trim(),
@@ -1744,7 +1843,10 @@ function BudgetLogCard({ log, teams, isMaster, canEdit, onPatch, onDelete }) {
               </select>
             )}
             <input value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} />
-            <input type="number" min="0" step="0.01" value={draft.amount} onChange={(event) => setDraft({ ...draft, amount: event.target.value })} />
+            <input list="currency-code-options" maxLength="3" value={draft.currency} onChange={(event) => setDraft({ ...draft, currency: event.target.value.toUpperCase() })} />
+            <input type="number" min="0" step="0.01" value={draft.original_amount} onChange={(event) => setDraft({ ...draft, original_amount: event.target.value })} />
+            <input type="number" min="0.000001" step="0.000001" value={draft.exchange_rate_to_sgd} onChange={(event) => setDraft({ ...draft, exchange_rate_to_sgd: event.target.value })} />
+            <div className="locked-field">{money(convertedSgd(draft.original_amount, draft.exchange_rate_to_sgd))}</div>
             <input type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} />
             <input value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
             <input placeholder="Sponsor" value={draft.sponsored_by} onChange={(event) => setDraft({ ...draft, sponsored_by: event.target.value })} />
@@ -1758,7 +1860,8 @@ function BudgetLogCard({ log, teams, isMaster, canEdit, onPatch, onDelete }) {
         <>
           <div>
             <strong>{teamCode(teams, log.team_id)} - {log.category}</strong>
-            <span>{money(log.amount)} - {shortDate(log.date)}</span>
+            <span>{currencyMoney(log.original_amount ?? log.amount, log.currency)} x {Number(log.exchange_rate_to_sgd || 1).toFixed(6)} = {money(log.amount)}</span>
+            <span>{shortDate(log.date)}</span>
             {log.sponsored_by && <span>Sponsored by {log.sponsored_by}</span>}
             <p>{log.notes}</p>
           </div>

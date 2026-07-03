@@ -502,8 +502,12 @@ nav button:hover {
 
 .budget-log-edit-grid {
   display: grid;
-  grid-template-columns: 80px minmax(120px, 1fr) 100px 145px minmax(120px, 1fr) minmax(120px, 1fr);
+  grid-template-columns: 80px minmax(120px, 1fr) 70px 110px 105px 130px 140px minmax(120px, 1fr) minmax(120px, 1fr);
   gap: 8px;
+}
+
+.budget-log-edit-grid > * {
+  min-width: 0;
 }
 
 .task-composer,
@@ -595,7 +599,7 @@ nav button:hover {
 
 .budget-form {
   display: grid;
-  grid-template-columns: 100px minmax(160px, 1.1fr) 140px 150px minmax(160px, 1fr) minmax(140px, 0.9fr) 120px;
+  grid-template-columns: 90px minmax(150px, 1.1fr) 70px 120px 110px 140px 140px minmax(150px, 1fr) minmax(130px, 0.9fr) 120px;
   align-items: end;
   gap: 10px;
 }
@@ -617,9 +621,14 @@ nav button:hover {
 .invoice-form {
   align-items: end;
   display: grid;
-  grid-template-columns: 92px minmax(180px, 1fr) minmax(160px, 0.9fr) 130px;
+  grid-template-columns: 90px minmax(130px, 0.8fr) minmax(170px, 1.1fr) 140px 70px 120px 110px 140px minmax(120px, 0.8fr) minmax(180px, 1fr) 130px;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.invoice-form .compact-field,
+.invoice-form button {
+  min-width: 0;
 }
 
 .invoice-form button {

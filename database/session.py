@@ -80,8 +80,17 @@ def run_sqlite_migrations():
         "bom_versions.sponsored_by": "ALTER TABLE bom_versions ADD COLUMN sponsored_by VARCHAR(160) DEFAULT '' NOT NULL",
         "budget_logs.team_id": "ALTER TABLE budget_logs ADD COLUMN team_id INTEGER REFERENCES teams(id)",
         "budget_logs.sponsored_by": "ALTER TABLE budget_logs ADD COLUMN sponsored_by VARCHAR(160) DEFAULT '' NOT NULL",
+        "budget_logs.currency": "ALTER TABLE budget_logs ADD COLUMN currency VARCHAR(3) DEFAULT 'SGD' NOT NULL",
+        "budget_logs.original_amount": "ALTER TABLE budget_logs ADD COLUMN original_amount FLOAT DEFAULT 0 NOT NULL",
+        "budget_logs.exchange_rate_to_sgd": "ALTER TABLE budget_logs ADD COLUMN exchange_rate_to_sgd FLOAT DEFAULT 1 NOT NULL",
         "users.team_id": "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
         "invoices.file_data": "ALTER TABLE invoices ADD COLUMN file_data TEXT DEFAULT '' NOT NULL",
+        "invoices.budget_log_id": "ALTER TABLE invoices ADD COLUMN budget_log_id INTEGER REFERENCES budget_logs(id)",
+        "invoices.invoice_date": "ALTER TABLE invoices ADD COLUMN invoice_date DATE",
+        "invoices.currency": "ALTER TABLE invoices ADD COLUMN currency VARCHAR(3) DEFAULT 'SGD' NOT NULL",
+        "invoices.original_amount": "ALTER TABLE invoices ADD COLUMN original_amount FLOAT DEFAULT 0 NOT NULL",
+        "invoices.exchange_rate_to_sgd": "ALTER TABLE invoices ADD COLUMN exchange_rate_to_sgd FLOAT DEFAULT 1 NOT NULL",
+        "invoices.amount_sgd": "ALTER TABLE invoices ADD COLUMN amount_sgd FLOAT DEFAULT 0 NOT NULL",
     }
     create_statements = {
         "invoices": """
@@ -89,7 +98,13 @@ def run_sqlite_migrations():
                 id INTEGER NOT NULL PRIMARY KEY,
                 project_id INTEGER NOT NULL REFERENCES projects(id),
                 team_id INTEGER REFERENCES teams(id),
+                budget_log_id INTEGER REFERENCES budget_logs(id),
                 description VARCHAR(220) NOT NULL,
+                invoice_date DATE,
+                currency VARCHAR(3) DEFAULT 'SGD' NOT NULL,
+                original_amount FLOAT DEFAULT 0 NOT NULL,
+                exchange_rate_to_sgd FLOAT DEFAULT 1 NOT NULL,
+                amount_sgd FLOAT DEFAULT 0 NOT NULL,
                 original_filename VARCHAR(220) NOT NULL,
                 stored_filename VARCHAR(260) NOT NULL,
                 file_data TEXT DEFAULT '' NOT NULL,
@@ -109,6 +124,8 @@ def run_sqlite_migrations():
             column_name = table_key.split(".")[1]
             if column_name not in columns:
                 connection.execute(text(statement))
+        if "budget_logs" in existing_tables:
+            connection.execute(text("UPDATE budget_logs SET original_amount = amount WHERE original_amount = 0 AND amount <> 0"))
 
 
 def run_postgres_migrations():
@@ -133,3 +150,13 @@ def run_postgres_migrations():
         connection.execute(text("ALTER TABLE IF EXISTS bom_versions ADD COLUMN IF NOT EXISTS product_number VARCHAR(120) DEFAULT '' NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS bom_versions ADD COLUMN IF NOT EXISTS product VARCHAR(220) DEFAULT '' NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS bom_versions ADD COLUMN IF NOT EXISTS vendor VARCHAR(160) DEFAULT '' NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'SGD' NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS original_amount DOUBLE PRECISION DEFAULT 0 NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS exchange_rate_to_sgd DOUBLE PRECISION DEFAULT 1 NOT NULL"))
+        connection.execute(text("UPDATE budget_logs SET original_amount = amount WHERE original_amount = 0 AND amount <> 0"))
+        connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS budget_log_id INTEGER REFERENCES budget_logs(id)"))
+        connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS invoice_date DATE"))
+        connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'SGD' NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS original_amount DOUBLE PRECISION DEFAULT 0 NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS exchange_rate_to_sgd DOUBLE PRECISION DEFAULT 1 NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS amount_sgd DOUBLE PRECISION DEFAULT 0 NOT NULL"))
