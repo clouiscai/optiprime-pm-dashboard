@@ -1780,7 +1780,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
 }
 
 function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAddPurchase, onPatchPurchase, onDeletePurchase, onReplacePdf, onDeletePdf }) {
-  const emptyPurchase = { category: "Materials", original_amount: "", notes: "" };
+  const emptyPurchase = { category: "Materials", quantity: 1, original_amount: "", notes: "" };
   const [purchaseDraft, setPurchaseDraft] = useState(emptyPurchase);
   const [replacementPdf, setReplacementPdf] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -1814,8 +1814,13 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
   async function addPurchase(event) {
     event.preventDefault();
     if (!purchaseDraft.category.trim() || purchaseDraft.original_amount === "") return;
+    if (Number(purchaseDraft.quantity) <= 0) {
+      window.alert("Quantity must be greater than zero.");
+      return;
+    }
     await onAddPurchase(invoice.id, {
       category: purchaseDraft.category.trim(),
+      quantity: Number(purchaseDraft.quantity),
       original_amount: Number(purchaseDraft.original_amount),
       notes: purchaseDraft.notes.trim(),
     });
@@ -1908,14 +1913,15 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
         <form className="invoice-purchase-form" onSubmit={addPurchase}>
           <label className="compact-field"><span>Type</span><input list="invoice-purchase-categories" value={purchaseDraft.category} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, category: event.target.value })} /></label>
           <label className="compact-field purchase-description-field"><span>What It Is</span><input placeholder="Item, shipping, tax, fee..." value={purchaseDraft.notes} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, notes: event.target.value })} /></label>
-          <label className="compact-field"><span>Price ({invoice.currency})</span><input type="number" step="0.01" value={purchaseDraft.original_amount} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, original_amount: event.target.value })} /></label>
+          <label className="compact-field"><span>Quantity</span><input type="number" min="0.001" step="1" value={purchaseDraft.quantity} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, quantity: event.target.value })} /></label>
+          <label className="compact-field"><span>Unit Price ({invoice.currency})</span><input type="number" step="0.01" value={purchaseDraft.original_amount} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, original_amount: event.target.value })} /></label>
           <button>Add Line</button>
         </form>
       )}
 
       <div className="invoice-purchase-list">
         <div className="invoice-purchase-labels" aria-hidden="true">
-          <span>Type</span><span>What It Is</span><span>Base Currency</span><span>SGD</span><span></span>
+          <span>Type</span><span>What It Is</span><span>Qty</span><span>Unit Price</span><span>Line Total</span><span>SGD Total</span><span></span>
         </div>
         {(invoice.purchases || []).map((purchase) => (
           <InvoicePurchaseRow key={purchase.id} purchase={purchase} canEdit={canEdit && editing} onPatch={onPatchPurchase} onDelete={onDeletePurchase} />
@@ -1928,16 +1934,21 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
 
 function InvoicePurchaseRow({ purchase, canEdit, onPatch, onDelete }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({ category: purchase.category, original_amount: purchase.original_amount, notes: purchase.notes || "" });
+  const [draft, setDraft] = useState({ category: purchase.category, quantity: purchase.quantity || 1, original_amount: purchase.original_amount, notes: purchase.notes || "" });
 
   useEffect(() => {
-    setDraft({ category: purchase.category, original_amount: purchase.original_amount, notes: purchase.notes || "" });
+    setDraft({ category: purchase.category, quantity: purchase.quantity || 1, original_amount: purchase.original_amount, notes: purchase.notes || "" });
     setEditing(false);
   }, [purchase]);
 
   async function save() {
+    if (Number(draft.quantity) <= 0) {
+      window.alert("Quantity must be greater than zero.");
+      return;
+    }
     await onPatch(purchase.id, {
       category: draft.category.trim(),
+      quantity: Number(draft.quantity),
       original_amount: Number(draft.original_amount),
       notes: draft.notes.trim(),
     });
@@ -1950,15 +1961,19 @@ function InvoicePurchaseRow({ purchase, canEdit, onPatch, onDelete }) {
         <>
           <input aria-label="Type" list="invoice-purchase-categories" value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} />
           <input aria-label="What it is" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
-          <input aria-label="Base currency price" type="number" step="0.01" value={draft.original_amount} onChange={(event) => setDraft({ ...draft, original_amount: event.target.value })} />
-          <strong>{money(convertedSgd(draft.original_amount, purchase.exchange_rate_to_sgd))}</strong>
+          <input aria-label="Quantity" type="number" min="0.001" step="1" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} />
+          <input aria-label="Unit price" type="number" step="0.01" value={draft.original_amount} onChange={(event) => setDraft({ ...draft, original_amount: event.target.value })} />
+          <strong>{currencyMoney(Number(draft.quantity || 0) * Number(draft.original_amount || 0), purchase.currency)}</strong>
+          <strong>{money(convertedSgd(Number(draft.quantity || 0) * Number(draft.original_amount || 0), purchase.exchange_rate_to_sgd))}</strong>
           <div className="row-actions"><button type="button" onClick={save}>Save</button><button type="button" onClick={() => setEditing(false)}>Cancel</button></div>
         </>
       ) : (
         <>
           <strong>{purchase.category}</strong>
           <span className={purchase.notes ? "" : "muted-placeholder"}>{purchase.notes || "No description"}</span>
+          <span>{purchase.quantity || 1}</span>
           <span>{currencyMoney(purchase.original_amount, purchase.currency)}</span>
+          <strong>{currencyMoney((purchase.quantity || 1) * purchase.original_amount, purchase.currency)}</strong>
           <strong>{money(purchase.amount)}</strong>
           {canEdit ? <div className="row-actions"><button type="button" onClick={() => setEditing(true)}>Edit</button><button type="button" className="danger-button" onClick={() => onDelete(purchase)}>Delete</button></div> : <span />}
         </>

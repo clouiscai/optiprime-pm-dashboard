@@ -14,12 +14,13 @@ from api.routes import (
     delete_invoice,
     delete_invoice_file,
     replace_invoice_file,
+    update_budget_log,
     update_invoice,
     upload_invoice,
 )
 from database.session import Base
 from models.entities import BudgetLog, Invoice, Project, Team
-from models.schemas import BudgetLogCreate, InvoicePurchaseCreate, InvoiceUpdate
+from models.schemas import BudgetLogCreate, BudgetLogUpdate, InvoicePurchaseCreate, InvoiceUpdate
 from services.calculations import project_dashboard
 
 
@@ -93,7 +94,7 @@ class FinanceTests(unittest.TestCase):
         first = asyncio.run(
             create_invoice_purchase(
                 invoice.id,
-                InvoicePurchaseCreate(category="Components", original_amount=100, notes="Thruster"),
+                InvoicePurchaseCreate(category="Components", quantity=2, original_amount=100, notes="Thruster"),
                 "test-token",
                 self.db,
             )
@@ -111,14 +112,16 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(invoice.invoice_number, "BR-1042")
         self.assertEqual(invoice.team_id, self.uav_id)
         self.assertEqual(invoice.sponsored_by, "Ocean Foundation")
-        self.assertEqual(invoice.original_amount, 80)
-        self.assertEqual(invoice.amount_sgd, 108)
+        self.assertEqual(invoice.original_amount, 180)
+        self.assertEqual(invoice.amount_sgd, 243)
         self.assertEqual(first.invoice_id, invoice.id)
         self.assertEqual(second.invoice_id, invoice.id)
         self.assertEqual(first.sponsored_by, "Ocean Foundation")
         self.assertEqual(second.sponsored_by, "Ocean Foundation")
         self.assertEqual(first.team_id, self.uav_id)
         self.assertEqual(second.team_id, self.uav_id)
+        self.assertEqual(first.quantity, 2)
+        self.assertEqual(first.amount, 270)
         self.assertEqual(self.db.query(BudgetLog).filter(BudgetLog.invoice_id == invoice.id).count(), 2)
         project = self.db.get(Project, self.project_id)
         self.assertEqual(project_dashboard(self.db, project)["actual_spend"], 0)
@@ -127,13 +130,22 @@ class FinanceTests(unittest.TestCase):
         self.db.refresh(second)
         self.assertEqual(first.sponsored_by, "")
         self.assertEqual(second.sponsored_by, "")
-        self.assertEqual(project_dashboard(self.db, project)["actual_spend"], 108)
+        self.assertEqual(project_dashboard(self.db, project)["actual_spend"], 243)
         team_dashboard = project_dashboard(self.db, project, self.uav_id)
-        self.assertEqual(team_dashboard["actual_spend"], 108)
-        self.assertEqual(team_dashboard["remaining_budget"], 192)
+        self.assertEqual(team_dashboard["actual_spend"], 243)
+        self.assertEqual(team_dashboard["remaining_budget"], 57)
         master_dashboard = project_dashboard(self.db, project)
         self.assertEqual(master_dashboard["unallocated_budget"], 700)
         self.assertEqual(master_dashboard["unallocated_actual_spend"], 0)
+
+        asyncio.run(update_budget_log(first.id, BudgetLogUpdate(quantity=3), "test-token", self.db))
+        self.db.refresh(invoice)
+        self.db.refresh(first)
+        self.assertEqual(first.quantity, 3)
+        self.assertEqual(first.amount, 405)
+        self.assertEqual(invoice.original_amount, 280)
+        self.assertEqual(invoice.amount_sgd, 378)
+        self.assertEqual(project_dashboard(self.db, project, self.uav_id)["actual_spend"], 378)
 
         asyncio.run(update_invoice(invoice.id, InvoiceUpdate(team_id=None), "test-token", self.db))
         self.db.refresh(invoice)
@@ -144,8 +156,8 @@ class FinanceTests(unittest.TestCase):
         self.assertIsNone(second.team_id)
         self.assertEqual(project_dashboard(self.db, project, self.uav_id)["actual_spend"], 0)
         master_dashboard = project_dashboard(self.db, project)
-        self.assertEqual(master_dashboard["unallocated_actual_spend"], 108)
-        self.assertEqual(master_dashboard["unallocated_remaining"], 592)
+        self.assertEqual(master_dashboard["unallocated_actual_spend"], 378)
+        self.assertEqual(master_dashboard["unallocated_remaining"], 322)
         replacement = UploadFile(filename="corrected.pdf", file=io.BytesIO(b"%PDF-1.7\n%%EOF"))
         replacement.headers = {"content-type": "application/pdf"}
         asyncio.run(replace_invoice_file(invoice.id, "test-token", replacement, self.db))

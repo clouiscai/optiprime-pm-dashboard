@@ -148,7 +148,7 @@ def amount_in_sgd(original_amount: float, exchange_rate_to_sgd: float) -> float:
 def refresh_invoice_totals(db: Session, invoice: Invoice) -> None:
     original_total, sgd_total = (
         db.query(
-            func.coalesce(func.sum(BudgetLog.original_amount), 0),
+            func.coalesce(func.sum(BudgetLog.quantity * BudgetLog.original_amount), 0),
             func.coalesce(func.sum(BudgetLog.amount), 0),
         )
         .filter(BudgetLog.invoice_id == invoice.id)
@@ -787,7 +787,7 @@ async def create_budget_log(payload: BudgetLogCreate, _: Writable, db: Session =
     original_amount = payload.original_amount if payload.original_amount is not None else payload.amount
     values["currency"] = normalize_currency(payload.currency)
     values["original_amount"] = original_amount
-    values["amount"] = amount_in_sgd(original_amount, payload.exchange_rate_to_sgd)
+    values["amount"] = amount_in_sgd(original_amount * payload.quantity, payload.exchange_rate_to_sgd)
     log = BudgetLog(**values)
     db.add(log)
     db.commit()
@@ -811,7 +811,9 @@ async def update_budget_log(log_id: int, payload: BudgetLogUpdate, _: Writable, 
     updates["currency"] = currency
     updates["original_amount"] = original_amount
     updates["exchange_rate_to_sgd"] = exchange_rate
-    updates["amount"] = amount_in_sgd(original_amount, exchange_rate)
+    quantity = updates.get("quantity", log.quantity)
+    updates["quantity"] = quantity
+    updates["amount"] = amount_in_sgd(original_amount * quantity, exchange_rate)
     if linked_invoice:
         updates["date"] = linked_invoice.invoice_date or log.date
         updates["team_id"] = linked_invoice.team_id
@@ -1010,7 +1012,7 @@ async def update_invoice(invoice_id: int, payload: InvoiceUpdate, _: Writable, d
     for purchase in invoice.purchases:
         purchase.currency = invoice.currency
         purchase.exchange_rate_to_sgd = invoice.exchange_rate_to_sgd
-        purchase.amount = amount_in_sgd(purchase.original_amount, invoice.exchange_rate_to_sgd)
+        purchase.amount = amount_in_sgd(purchase.original_amount * purchase.quantity, invoice.exchange_rate_to_sgd)
         if invoice.invoice_date:
             purchase.date = invoice.invoice_date
         purchase.team_id = invoice.team_id
@@ -1042,10 +1044,11 @@ async def create_invoice_purchase(
         team_id=invoice.team_id,
         invoice_id=invoice.id,
         category=category,
+        quantity=payload.quantity,
         currency=invoice.currency,
         original_amount=payload.original_amount,
         exchange_rate_to_sgd=invoice.exchange_rate_to_sgd,
-        amount=amount_in_sgd(payload.original_amount, invoice.exchange_rate_to_sgd),
+        amount=amount_in_sgd(payload.original_amount * payload.quantity, invoice.exchange_rate_to_sgd),
         date=invoice.invoice_date or DateType.today(),
         notes=payload.notes.strip(),
         sponsored_by=invoice.sponsored_by,

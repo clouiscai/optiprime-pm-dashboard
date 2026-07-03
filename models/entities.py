@@ -135,6 +135,7 @@ class BudgetLog(Base):
     invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), nullable=True, index=True)
     category: Mapped[str] = mapped_column(String(120), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="SGD")
+    quantity: Mapped[float] = mapped_column(Float, default=1.0)
     original_amount: Mapped[float] = mapped_column(Float, default=0.0)
     exchange_rate_to_sgd: Mapped[float] = mapped_column(Float, default=1.0)
     amount: Mapped[float] = mapped_column(Float, default=0.0)

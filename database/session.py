@@ -81,6 +81,7 @@ def run_sqlite_migrations():
         "budget_logs.team_id": "ALTER TABLE budget_logs ADD COLUMN team_id INTEGER REFERENCES teams(id)",
         "budget_logs.sponsored_by": "ALTER TABLE budget_logs ADD COLUMN sponsored_by VARCHAR(160) DEFAULT '' NOT NULL",
         "budget_logs.currency": "ALTER TABLE budget_logs ADD COLUMN currency VARCHAR(3) DEFAULT 'SGD' NOT NULL",
+        "budget_logs.quantity": "ALTER TABLE budget_logs ADD COLUMN quantity FLOAT DEFAULT 1 NOT NULL",
         "budget_logs.original_amount": "ALTER TABLE budget_logs ADD COLUMN original_amount FLOAT DEFAULT 0 NOT NULL",
         "budget_logs.exchange_rate_to_sgd": "ALTER TABLE budget_logs ADD COLUMN exchange_rate_to_sgd FLOAT DEFAULT 1 NOT NULL",
         "budget_logs.invoice_id": "ALTER TABLE budget_logs ADD COLUMN invoice_id INTEGER REFERENCES invoices(id)",
@@ -189,6 +190,7 @@ def run_postgres_migrations():
         connection.execute(text("ALTER TABLE IF EXISTS bom_versions ADD COLUMN IF NOT EXISTS product VARCHAR(220) DEFAULT '' NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS bom_versions ADD COLUMN IF NOT EXISTS vendor VARCHAR(160) DEFAULT '' NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'SGD' NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS quantity DOUBLE PRECISION DEFAULT 1 NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS original_amount DOUBLE PRECISION DEFAULT 0 NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS exchange_rate_to_sgd DOUBLE PRECISION DEFAULT 1 NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS invoice_id INTEGER REFERENCES invoices(id)"))
