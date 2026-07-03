@@ -66,8 +66,8 @@ Writable = Annotated[str, Depends(require_write_token)]
 ROOT = Path(__file__).resolve().parents[1]
 INVOICE_DIR = ROOT / "uploads" / "invoices"
 MAX_INVOICE_BYTES = 10 * 1024 * 1024
-LOGIN_WINDOW_SECONDS = 15 * 60
-LOGIN_ATTEMPT_LIMIT = 5
+LOGIN_WINDOW_SECONDS = 5 * 60
+LOGIN_ATTEMPT_LIMIT = 10
 login_attempts: dict[str, deque[float]] = defaultdict(deque)
 login_attempts_lock = Lock()
 

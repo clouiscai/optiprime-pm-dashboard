@@ -248,11 +248,13 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-      if (!response.ok) throw new Error("Invalid username or password");
+      if (response.status === 429) throw new Error("Too many login attempts. Wait five minutes and try again.");
+      if (response.status === 503) throw new Error("Login is temporarily unavailable. Please try again shortly.");
+      if (!response.ok) throw new Error("Invalid username or password.");
       const payload = await response.json();
       await loadWorkspace(payload.token, payload.role);
-    } catch {
-      setAuthError("Invalid username or password.");
+    } catch (error) {
+      setAuthError(error.message || "Unable to sign in.");
     }
   }
 

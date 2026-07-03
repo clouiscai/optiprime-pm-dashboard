@@ -45,7 +45,7 @@ class AuthTests(unittest.TestCase):
 
     def test_login_attempts_are_throttled(self):
         client_key = "test-client"
-        for _ in range(5):
+        for _ in range(10):
             check_login_rate_limit(client_key)
             record_login_result(client_key, False)
         with self.assertRaises(HTTPException) as context:
