@@ -242,6 +242,7 @@ class InvoicePurchaseCreate(BaseModel):
 
 
 class InvoiceUpdate(BaseModel):
+    team_id: int | None = None
     vendor: str | None = Field(default=None, min_length=1, max_length=160)
     invoice_number: str | None = Field(default=None, min_length=1, max_length=120)
     sponsored_by: str | None = Field(default=None, max_length=160)
@@ -395,6 +396,9 @@ class DashboardRead(BaseModel):
     expected_spend: float = 0
     actual_spend: float
     remaining_budget: float
+    unallocated_budget: float = 0
+    unallocated_actual_spend: float = 0
+    unallocated_remaining: float = 0
     status_counts: dict[str, int]
     priority_counts: dict[str, int]
     team_summaries: list[dict[str, Any]] = Field(default_factory=list)

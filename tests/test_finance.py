@@ -18,7 +18,7 @@ from api.routes import (
     upload_invoice,
 )
 from database.session import Base
-from models.entities import BudgetLog, Invoice, Project
+from models.entities import BudgetLog, Invoice, Project, Team
 from models.schemas import BudgetLogCreate, InvoicePurchaseCreate, InvoiceUpdate
 from services.calculations import project_dashboard
 
@@ -30,8 +30,12 @@ class FinanceTests(unittest.TestCase):
         self.db = sessionmaker(bind=engine)()
         project = Project(name="Multi-currency test", budget=1000)
         self.db.add(project)
+        self.db.flush()
+        uav = Team(project_id=project.id, code="UAV", name="UAV Team", domain="Aerial", budget=300)
+        self.db.add(uav)
         self.db.commit()
         self.project_id = project.id
+        self.uav_id = uav.id
 
     def tearDown(self):
         self.db.close()
@@ -79,7 +83,7 @@ class FinanceTests(unittest.TestCase):
                 invoice_date=date(2026, 7, 3),
                 currency="USD",
                 exchange_rate_to_sgd=1.35,
-                team_id=None,
+                team_id=self.uav_id,
                 category="",
                 original_amount=0,
                 file=upload,
@@ -105,6 +109,7 @@ class FinanceTests(unittest.TestCase):
         self.db.refresh(invoice)
         self.assertEqual(invoice.vendor, "Blue Robotics")
         self.assertEqual(invoice.invoice_number, "BR-1042")
+        self.assertEqual(invoice.team_id, self.uav_id)
         self.assertEqual(invoice.sponsored_by, "Ocean Foundation")
         self.assertEqual(invoice.original_amount, 80)
         self.assertEqual(invoice.amount_sgd, 108)
@@ -112,6 +117,8 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(second.invoice_id, invoice.id)
         self.assertEqual(first.sponsored_by, "Ocean Foundation")
         self.assertEqual(second.sponsored_by, "Ocean Foundation")
+        self.assertEqual(first.team_id, self.uav_id)
+        self.assertEqual(second.team_id, self.uav_id)
         self.assertEqual(self.db.query(BudgetLog).filter(BudgetLog.invoice_id == invoice.id).count(), 2)
         project = self.db.get(Project, self.project_id)
         self.assertEqual(project_dashboard(self.db, project)["actual_spend"], 0)
@@ -121,6 +128,24 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(first.sponsored_by, "")
         self.assertEqual(second.sponsored_by, "")
         self.assertEqual(project_dashboard(self.db, project)["actual_spend"], 108)
+        team_dashboard = project_dashboard(self.db, project, self.uav_id)
+        self.assertEqual(team_dashboard["actual_spend"], 108)
+        self.assertEqual(team_dashboard["remaining_budget"], 192)
+        master_dashboard = project_dashboard(self.db, project)
+        self.assertEqual(master_dashboard["unallocated_budget"], 700)
+        self.assertEqual(master_dashboard["unallocated_actual_spend"], 0)
+
+        asyncio.run(update_invoice(invoice.id, InvoiceUpdate(team_id=None), "test-token", self.db))
+        self.db.refresh(invoice)
+        self.db.refresh(first)
+        self.db.refresh(second)
+        self.assertIsNone(invoice.team_id)
+        self.assertIsNone(first.team_id)
+        self.assertIsNone(second.team_id)
+        self.assertEqual(project_dashboard(self.db, project, self.uav_id)["actual_spend"], 0)
+        master_dashboard = project_dashboard(self.db, project)
+        self.assertEqual(master_dashboard["unallocated_actual_spend"], 108)
+        self.assertEqual(master_dashboard["unallocated_remaining"], 592)
         replacement = UploadFile(filename="corrected.pdf", file=io.BytesIO(b"%PDF-1.7\n%%EOF"))
         replacement.headers = {"content-type": "application/pdf"}
         asyncio.run(replace_invoice_file(invoice.id, "test-token", replacement, self.db))

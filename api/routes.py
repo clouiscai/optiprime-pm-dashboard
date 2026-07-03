@@ -106,6 +106,15 @@ def get_project_or_404(db: Session, project_id: int) -> Project:
     return project
 
 
+def validate_project_team(db: Session, project_id: int, team_id: int | None) -> int | None:
+    if team_id is None:
+        return None
+    team = db.get(Team, team_id)
+    if not team or team.project_id != project_id:
+        raise HTTPException(400, "Team must belong to the invoice project")
+    return team.id
+
+
 def normalized_team_id(team_id: int | None = Query(default=None)) -> int | None:
     return team_id
 
@@ -805,6 +814,7 @@ async def update_budget_log(log_id: int, payload: BudgetLogUpdate, _: Writable, 
     updates["amount"] = amount_in_sgd(original_amount, exchange_rate)
     if linked_invoice:
         updates["date"] = linked_invoice.invoice_date or log.date
+        updates["team_id"] = linked_invoice.team_id
         updates["sponsored_by"] = linked_invoice.sponsored_by
     for field, value in updates.items():
         setattr(log, field, value)
@@ -838,16 +848,18 @@ async def delete_budget_log(log_id: int, _: Writable, db: Session = Depends(get_
 
 
 @router.get("/projects/{project_id}/invoices", response_model=list[InvoiceRead])
-def list_invoices(project_id: int, _: Protected, db: Session = Depends(get_db)):
+def list_invoices(project_id: int, _: Protected, team_id: int | None = None, db: Session = Depends(get_db)):
     get_project_or_404(db, project_id)
     ensure_invoice_file_data_column(db)
-    return (
+    query = (
         db.query(Invoice)
         .options(joinedload(Invoice.purchases))
         .filter(Invoice.project_id == project_id)
-        .order_by(Invoice.vendor.asc(), Invoice.invoice_date.desc(), Invoice.id.desc())
-        .all()
     )
+    if team_id is not None:
+        validate_project_team(db, project_id, team_id)
+        query = query.filter(Invoice.team_id == team_id)
+    return query.order_by(Invoice.vendor.asc(), Invoice.invoice_date.desc(), Invoice.id.desc()).all()
 
 
 @router.post("/invoices", response_model=InvoiceRead)
@@ -879,11 +891,12 @@ async def upload_invoice(
     currency_code = normalize_currency(currency)
     amount_in_sgd(0, exchange_rate_to_sgd)
     clean_sponsor = sponsored_by.strip()
+    validated_team_id = validate_project_team(db, project_id, team_id)
     stored_name = f"{uuid4().hex}.pdf"
 
     invoice = Invoice(
         project_id=project_id,
-        team_id=None,
+        team_id=validated_team_id,
         budget_log_id=None,
         vendor=clean_vendor,
         invoice_number=clean_number,
@@ -907,7 +920,7 @@ async def upload_invoice(
             raise HTTPException(400, "A category is required when importing an invoice total")
         log = BudgetLog(
             project_id=project_id,
-            team_id=team_id,
+            team_id=validated_team_id,
             invoice_id=invoice.id,
             category=clean_category,
             currency=currency_code,
@@ -990,6 +1003,8 @@ async def update_invoice(invoice_id: int, payload: InvoiceUpdate, _: Writable, d
         updates["currency"] = normalize_currency(updates["currency"])
     if "sponsored_by" in updates:
         updates["sponsored_by"] = updates["sponsored_by"].strip()
+    if "team_id" in updates:
+        updates["team_id"] = validate_project_team(db, invoice.project_id, updates["team_id"])
     for field, value in updates.items():
         setattr(invoice, field, value)
     for purchase in invoice.purchases:
@@ -998,6 +1013,7 @@ async def update_invoice(invoice_id: int, payload: InvoiceUpdate, _: Writable, d
         purchase.amount = amount_in_sgd(purchase.original_amount, invoice.exchange_rate_to_sgd)
         if invoice.invoice_date:
             purchase.date = invoice.invoice_date
+        purchase.team_id = invoice.team_id
         purchase.sponsored_by = invoice.sponsored_by
     db.flush()
     refresh_invoice_totals(db, invoice)
@@ -1023,7 +1039,7 @@ async def create_invoice_purchase(
         raise HTTPException(400, "Purchase category is required")
     purchase = BudgetLog(
         project_id=invoice.project_id,
-        team_id=None,
+        team_id=invoice.team_id,
         invoice_id=invoice.id,
         category=category,
         currency=invoice.currency,

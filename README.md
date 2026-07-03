@@ -108,7 +108,7 @@ Finance records follow this hierarchy:
 2. Invoice number and PDF
 3. Purchase lines under that invoice, including materials, shipping, tax, fees, and services
 
-Invoice headers store the vendor, invoice number, date, base currency, SGD exchange rate, sponsorship status, sponsor name, description, and PDF. Each purchase line records what the charge is, its type (such as material, shipping, tax, fee, discount, or service), and its price in the invoice base currency. Discounts can be entered as negative purchase lines. Actual spending is calculated only from non-sponsored invoice purchase lines, not from the invoice header or legacy standalone expenses, so invoice totals are never counted twice. An invoice PDF can be replaced or removed without deleting the invoice and its purchase lines.
+Invoice headers store the assigned team, vendor, invoice number, date, base currency, SGD exchange rate, sponsorship status, sponsor name, description, and PDF. Each purchase line inherits the invoice's team and records what the charge is, its type (such as material, shipping, tax, fee, discount, or service), and its price in the invoice base currency. Discounts can be entered as negative purchase lines. Team invoices reduce that team's allocation; General invoices reduce the project's unallocated funds. Actual spending is calculated only from non-sponsored invoice purchase lines, not from the invoice header or legacy standalone expenses, so invoice totals are never counted twice. An invoice PDF can be replaced or removed without deleting the invoice and its purchase lines.
 
 ### 1. Create Supabase Database
 

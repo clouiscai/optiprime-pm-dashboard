@@ -48,6 +48,15 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
         .filter(Task.project_id == project.id, Blocker.status == "open")
         .all()
     )
+    all_sponsor_total = round(sum(sponsor.amount for sponsor in all_sponsors), 2)
+    project_planned_budget = all_sponsor_total if all_sponsor_total else project.budget
+    allocated_budget = round(sum(summary_team.budget for summary_team in teams), 2)
+    unallocated_budget = round(project_planned_budget - allocated_budget, 2)
+    unallocated_actual_spend = round(
+        sum(log.amount for log in all_logs if log.team_id is None and not log.sponsored_by),
+        2,
+    )
+    unallocated_remaining = round(unallocated_budget - unallocated_actual_spend, 2)
 
     if team_id:
         tasks = [task for task in all_tasks if task.team_id == team_id]
@@ -110,7 +119,7 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
     if team:
         planned_budget = team.budget
     else:
-        planned_budget = sponsor_total if sponsor_total else project.budget
+        planned_budget = project_planned_budget
 
     return {
         "project": project,
@@ -128,6 +137,9 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
         "expected_spend": expected_spend,
         "actual_spend": actual_spend,
         "remaining_budget": round(planned_budget - actual_spend, 2),
+        "unallocated_budget": unallocated_budget,
+        "unallocated_actual_spend": unallocated_actual_spend,
+        "unallocated_remaining": unallocated_remaining,
         "status_counts": status_counts,
         "priority_counts": priority_counts,
         "team_summaries": team_summaries,

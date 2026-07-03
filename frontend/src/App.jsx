@@ -202,14 +202,14 @@ export default function App() {
         requests.bom = apiFetch(`/projects/${projectId}/bom${query}`, token);
       }
       if (normalizedScope === "Finance") {
-        requests.invoices = apiFetch(`/projects/${projectId}/invoices`, token);
+        requests.invoices = apiFetch(`/projects/${projectId}/invoices${query}`, token);
       }
       if (normalizedScope === "Equipments/Asset") {
         requests.assets = apiFetch(`/projects/${projectId}/assets${query}`, token);
       }
       if (normalizedScope === "Sponsors") {
         requests.sponsors = apiFetch(`/projects/${projectId}/sponsors`, token);
-        requests.invoices = apiFetch(`/projects/${projectId}/invoices`, token);
+        requests.invoices = apiFetch(`/projects/${projectId}/invoices${query}`, token);
         requests.assets = apiFetch(`/projects/${projectId}/assets${query}`, token);
       }
 
@@ -1507,8 +1507,9 @@ function Bom({ projectId, teamId, selectedTeam, token, teams, dashboard, bom, ca
 }
 
 function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, canEdit, onRefresh }) {
-  const emptyInvoiceDraft = { vendor: "", invoice_number: "", description: "", invoice_date: today, currency: "SGD", exchange_rate_to_sgd: 1, is_sponsored: false, sponsored_by: "", file: null };
-  const [invoiceDraft, setInvoiceDraft] = useState(emptyInvoiceDraft);
+  const defaultInvoiceTeam = selectedTeam === "master" ? "" : Number(selectedTeam);
+  const newInvoiceDraft = () => ({ team_id: defaultInvoiceTeam, vendor: "", invoice_number: "", description: "", invoice_date: today, currency: "SGD", exchange_rate_to_sgd: 1, is_sponsored: false, sponsored_by: "", file: null });
+  const [invoiceDraft, setInvoiceDraft] = useState(newInvoiceDraft);
   const [showInvoiceComposer, setShowInvoiceComposer] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   const currencyOptions = useMemo(() => [...new Set([...commonCurrencies, ...invoices.map((invoice) => invoice.currency).filter(Boolean)])].sort(), [invoices]);
@@ -1533,9 +1534,9 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
   }, [invoices]);
 
   useEffect(() => {
-    setInvoiceDraft(emptyInvoiceDraft);
+    setInvoiceDraft(newInvoiceDraft());
     setShowInvoiceComposer(false);
-  }, [projectId]);
+  }, [projectId, selectedTeam]);
 
   async function patchPurchase(logId, patch) {
     await apiFetch(`/budget/${logId}`, token, { method: "PATCH", body: JSON.stringify(patch) });
@@ -1572,6 +1573,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
     }
     const form = new FormData();
     form.append("project_id", String(projectId));
+    if (invoiceDraft.team_id) form.append("team_id", String(invoiceDraft.team_id));
     form.append("vendor", invoiceDraft.vendor.trim());
     form.append("invoice_number", invoiceDraft.invoice_number.trim());
     form.append("description", invoiceDraft.description.trim());
@@ -1587,7 +1589,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
         body: form,
       });
       if (!response.ok) throw new Error(await response.text() || "Invoice upload failed");
-      setInvoiceDraft(emptyInvoiceDraft);
+      setInvoiceDraft(newInvoiceDraft());
       setShowInvoiceComposer(false);
       event.target.reset();
       await onRefresh();
@@ -1679,6 +1681,13 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
         <div className="invoice-panel">
             {canEdit && showInvoiceComposer && (
               <form className="invoice-form" onSubmit={uploadInvoice}>
+                <label className="compact-field invoice-team-field">
+                  <span>Team</span>
+                  <select value={invoiceDraft.team_id || ""} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, team_id: event.target.value ? Number(event.target.value) : "" })}>
+                    <option value="">General</option>
+                    {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
+                  </select>
+                </label>
                 <label className="compact-field invoice-vendor-field">
                   <span>Vendor</span>
                   <input placeholder="Vendor name" value={invoiceDraft.vendor} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, vendor: event.target.value })} />
@@ -1733,6 +1742,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
                       <InvoiceCard
                         key={invoice.id}
                         invoice={invoice}
+                        teams={teams}
                         canEdit={canEdit}
                         onView={viewInvoice}
                         onDelete={deleteInvoice}
@@ -1759,6 +1769,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
           teamSummaries={dashboard?.team_summaries || []}
           selectedTeam={selectedTeam}
           plannedBudget={dashboard?.planned_budget || 0}
+          unallocatedActualSpend={dashboard?.unallocated_actual_spend || 0}
           canEdit={canEdit}
           onRefresh={onRefresh}
           onClose={() => setShowPlan(false)}
@@ -1768,12 +1779,13 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
   );
 }
 
-function InvoiceCard({ invoice, canEdit, onView, onDelete, onPatch, onAddPurchase, onPatchPurchase, onDeletePurchase, onReplacePdf, onDeletePdf }) {
+function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAddPurchase, onPatchPurchase, onDeletePurchase, onReplacePdf, onDeletePdf }) {
   const emptyPurchase = { category: "Materials", original_amount: "", notes: "" };
   const [purchaseDraft, setPurchaseDraft] = useState(emptyPurchase);
   const [replacementPdf, setReplacementPdf] = useState(null);
   const [editing, setEditing] = useState(false);
   const [headerDraft, setHeaderDraft] = useState({
+    team_id: invoice.team_id || "",
     vendor: invoice.vendor,
     invoice_number: invoice.invoice_number,
     description: invoice.description,
@@ -1786,6 +1798,7 @@ function InvoiceCard({ invoice, canEdit, onView, onDelete, onPatch, onAddPurchas
 
   useEffect(() => {
     setHeaderDraft({
+      team_id: invoice.team_id || "",
       vendor: invoice.vendor,
       invoice_number: invoice.invoice_number,
       description: invoice.description,
@@ -1816,6 +1829,7 @@ function InvoiceCard({ invoice, canEdit, onView, onDelete, onPatch, onAddPurchas
       return;
     }
     await onPatch(invoice.id, {
+      team_id: headerDraft.team_id ? Number(headerDraft.team_id) : null,
       vendor: headerDraft.vendor.trim(),
       invoice_number: headerDraft.invoice_number.trim(),
       description: headerDraft.description.trim(),
@@ -1843,6 +1857,7 @@ function InvoiceCard({ invoice, canEdit, onView, onDelete, onPatch, onAddPurchas
     <article className="invoice-card">
       {editing ? (
         <div className="invoice-header-edit">
+          <label className="compact-field invoice-edit-team"><span>Team</span><select value={headerDraft.team_id || ""} onChange={(event) => setHeaderDraft({ ...headerDraft, team_id: event.target.value ? Number(event.target.value) : "" })}><option value="">General</option>{teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}</select></label>
           <label className="compact-field invoice-edit-vendor"><span>Vendor</span><input value={headerDraft.vendor} onChange={(event) => setHeaderDraft({ ...headerDraft, vendor: event.target.value })} /></label>
           <label className="compact-field invoice-edit-number"><span>Invoice Number</span><input value={headerDraft.invoice_number} onChange={(event) => setHeaderDraft({ ...headerDraft, invoice_number: event.target.value })} /></label>
           <label className="compact-field invoice-edit-sponsor-toggle"><span>Sponsorship</span><div className="toggle-field"><input type="checkbox" checked={headerDraft.is_sponsored} onChange={(event) => setHeaderDraft({ ...headerDraft, is_sponsored: event.target.checked, sponsored_by: event.target.checked ? headerDraft.sponsored_by : "" })} /><span>Sponsored</span></div></label>
@@ -1865,7 +1880,7 @@ function InvoiceCard({ invoice, canEdit, onView, onDelete, onPatch, onAddPurchas
       ) : (
         <header className="invoice-card-header">
           <div>
-            <span className="invoice-kicker">Invoice {invoice.invoice_number}</span>
+            <span className="invoice-kicker">{teamCode(teams, invoice.team_id)} | Invoice {invoice.invoice_number}</span>
             <h4>{invoice.description}</h4>
             <p>{shortDate(invoice.invoice_date || invoice.uploaded_at?.slice(0, 10))} | {invoice.has_pdf ? invoice.original_filename : "No PDF attached"}</p>
             <span className={`invoice-sponsor-status${invoice.sponsored_by ? " sponsored" : ""}`}>{invoice.sponsored_by ? `Sponsored by ${invoice.sponsored_by}` : "Not sponsored"}</span>
@@ -1952,7 +1967,7 @@ function InvoicePurchaseRow({ purchase, canEdit, onPatch, onDelete }) {
   );
 }
 
-function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBudget, canEdit, onRefresh, onClose }) {
+function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBudget, unallocatedActualSpend, canEdit, onRefresh, onClose }) {
   const [edits, setEdits] = useState({});
   const [savingTeamId, setSavingTeamId] = useState(null);
   const summaryByTeam = new Map(teamSummaries.map((summary) => [summary.id, summary]));
@@ -1978,6 +1993,8 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
     };
   });
   const allocationTotal = allocationRows.reduce((total, team) => total + team.allocation, 0);
+  const unallocatedBudget = plannedBudget - allocationTotal;
+  const unallocatedRemaining = unallocatedBudget - unallocatedActualSpend;
 
   useEffect(() => {
     setEdits(Object.fromEntries(baseRows.map((team) => [team.id, team.allocation])));
@@ -2010,7 +2027,7 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
           </article>
           <article>
             <span>Unallocated</span>
-            <strong>{money(plannedBudget - allocationTotal)}</strong>
+            <strong>{money(unallocatedBudget)}</strong>
           </article>
         </div>
         <div className="table-wrap plan-table-wrap">
@@ -2048,6 +2065,17 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
                   )}
                 </tr>
               ))}
+              {selectedTeam === "master" && (
+                <tr className="general-allocation-row">
+                  <td><strong>General</strong><span>Shared project spending</span></td>
+                  <td>Unallocated Funds</td>
+                  <td>{money(unallocatedBudget)}</td>
+                  <td>{money(unallocatedActualSpend)}</td>
+                  <td className={unallocatedRemaining < 0 ? "over-budget" : ""}>{money(unallocatedRemaining)}</td>
+                  <td>{plannedBudget ? `${Math.round((unallocatedBudget / plannedBudget) * 100)}%` : "0%"}</td>
+                  {canEdit && <td><span>Automatic</span></td>}
+                </tr>
+              )}
               {allocationRows.length === 0 && (
                 <tr>
                   <td colSpan={canEdit ? "7" : "6"}>No team allocation entries yet.</td>
@@ -2507,7 +2535,7 @@ function Sponsors({ projectId, selectedTeam, token, teams, sponsors, invoices, a
         id: `invoice-${invoice.id}`,
         sponsor: invoice.sponsored_by,
         type: "Invoice",
-        team_id: null,
+        team_id: invoice.team_id,
         name: invoice.description,
         value: invoice.amount_sgd,
         notes: `${invoice.invoice_number} - ${shortDate(invoice.invoice_date)}`,
