@@ -108,7 +108,7 @@ Finance records follow this hierarchy:
 2. Invoice number and PDF
 3. Purchase lines under that invoice, including materials, shipping, tax, fees, and services
 
-Invoice headers store the vendor, invoice number, date, source currency, SGD exchange rate, description, and PDF. Actual spending is calculated from the purchase lines, not from the invoice header, so invoice totals are never counted twice. Standalone expenses remain available for spending that has no invoice.
+Invoice headers store the vendor, invoice number, date, base currency, SGD exchange rate, sponsorship status, sponsor name, description, and PDF. Each purchase line records what the charge is, its type (such as material, shipping, tax, fee, or service), and its price in the invoice base currency. Actual spending is calculated from non-sponsored purchase lines, not from the invoice header, so invoice totals are never counted twice. Standalone expenses remain available for spending that has no invoice.
 
 ### 1. Create Supabase Database
 

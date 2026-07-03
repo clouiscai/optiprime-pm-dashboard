@@ -795,6 +795,7 @@ async def update_budget_log(log_id: int, payload: BudgetLogUpdate, _: Writable, 
     updates["amount"] = amount_in_sgd(original_amount, exchange_rate)
     if linked_invoice:
         updates["date"] = linked_invoice.invoice_date or log.date
+        updates["sponsored_by"] = linked_invoice.sponsored_by
     for field, value in updates.items():
         setattr(log, field, value)
     db.flush()
@@ -884,6 +885,7 @@ async def upload_invoice(
         budget_log_id=None,
         vendor=clean_vendor,
         invoice_number=clean_number,
+        sponsored_by=clean_sponsor,
         description=clean_description,
         invoice_date=invoice_date,
         currency=currency_code,
@@ -945,6 +947,8 @@ async def update_invoice(invoice_id: int, payload: InvoiceUpdate, _: Writable, d
         updates["description"] = updates["description"].strip()
     if "currency" in updates:
         updates["currency"] = normalize_currency(updates["currency"])
+    if "sponsored_by" in updates:
+        updates["sponsored_by"] = updates["sponsored_by"].strip()
     for field, value in updates.items():
         setattr(invoice, field, value)
     for purchase in invoice.purchases:
@@ -953,6 +957,7 @@ async def update_invoice(invoice_id: int, payload: InvoiceUpdate, _: Writable, d
         purchase.amount = amount_in_sgd(purchase.original_amount, invoice.exchange_rate_to_sgd)
         if invoice.invoice_date:
             purchase.date = invoice.invoice_date
+        purchase.sponsored_by = invoice.sponsored_by
     db.flush()
     refresh_invoice_totals(db, invoice)
     db.commit()
@@ -977,7 +982,7 @@ async def create_invoice_purchase(
         raise HTTPException(400, "Purchase category is required")
     purchase = BudgetLog(
         project_id=invoice.project_id,
-        team_id=payload.team_id,
+        team_id=None,
         invoice_id=invoice.id,
         category=category,
         currency=invoice.currency,
@@ -986,7 +991,7 @@ async def create_invoice_purchase(
         amount=amount_in_sgd(payload.original_amount, invoice.exchange_rate_to_sgd),
         date=invoice.invoice_date or DateType.today(),
         notes=payload.notes.strip(),
-        sponsored_by=payload.sponsored_by.strip(),
+        sponsored_by=invoice.sponsored_by,
     )
     db.add(purchase)
     db.flush()

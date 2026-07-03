@@ -236,16 +236,15 @@ class BudgetLogRead(BudgetLogBase):
 
 
 class InvoicePurchaseCreate(BaseModel):
-    team_id: int | None = None
     category: str = Field(min_length=1, max_length=120)
     original_amount: float = Field(ge=0)
     notes: str = ""
-    sponsored_by: str = ""
 
 
 class InvoiceUpdate(BaseModel):
     vendor: str | None = Field(default=None, min_length=1, max_length=160)
     invoice_number: str | None = Field(default=None, min_length=1, max_length=120)
+    sponsored_by: str | None = Field(default=None, max_length=160)
     description: str | None = Field(default=None, min_length=1, max_length=220)
     invoice_date: DateType | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)
@@ -261,6 +260,7 @@ class InvoiceRead(BaseModel):
     budget_log_id: int | None = None
     vendor: str
     invoice_number: str
+    sponsored_by: str = ""
     description: str
     invoice_date: DateType | None = None
     currency: str = "SGD"

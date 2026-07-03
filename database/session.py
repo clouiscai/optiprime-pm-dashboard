@@ -94,6 +94,7 @@ def run_sqlite_migrations():
         "invoices.amount_sgd": "ALTER TABLE invoices ADD COLUMN amount_sgd FLOAT DEFAULT 0 NOT NULL",
         "invoices.vendor": "ALTER TABLE invoices ADD COLUMN vendor VARCHAR(160) DEFAULT '' NOT NULL",
         "invoices.invoice_number": "ALTER TABLE invoices ADD COLUMN invoice_number VARCHAR(120) DEFAULT '' NOT NULL",
+        "invoices.sponsored_by": "ALTER TABLE invoices ADD COLUMN sponsored_by VARCHAR(160) DEFAULT '' NOT NULL",
     }
     create_statements = {
         "invoices": """
@@ -104,6 +105,7 @@ def run_sqlite_migrations():
                 budget_log_id INTEGER REFERENCES budget_logs(id),
                 vendor VARCHAR(160) DEFAULT '' NOT NULL,
                 invoice_number VARCHAR(120) DEFAULT '' NOT NULL,
+                sponsored_by VARCHAR(160) DEFAULT '' NOT NULL,
                 description VARCHAR(220) NOT NULL,
                 invoice_date DATE,
                 currency VARCHAR(3) DEFAULT 'SGD' NOT NULL,
@@ -146,6 +148,22 @@ def run_sqlite_migrations():
                 )
             )
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_budget_logs_invoice_id ON budget_logs (invoice_id)"))
+            connection.execute(
+                text(
+                    """
+                    UPDATE invoices
+                    SET sponsored_by = COALESCE(
+                        (SELECT budget_logs.sponsored_by
+                         FROM budget_logs
+                         WHERE budget_logs.invoice_id = invoices.id
+                           AND TRIM(COALESCE(budget_logs.sponsored_by, '')) <> ''
+                         LIMIT 1),
+                        ''
+                    )
+                    WHERE TRIM(COALESCE(sponsored_by, '')) = ''
+                    """
+                )
+            )
 
 
 def run_postgres_migrations():
@@ -183,6 +201,7 @@ def run_postgres_migrations():
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS amount_sgd DOUBLE PRECISION DEFAULT 0 NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS vendor VARCHAR(160) DEFAULT '' NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(120) DEFAULT '' NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS sponsored_by VARCHAR(160) DEFAULT '' NOT NULL"))
         connection.execute(text("UPDATE invoices SET vendor = 'Unassigned Vendor' WHERE BTRIM(COALESCE(vendor, '')) = ''"))
         connection.execute(text("UPDATE invoices SET invoice_number = 'INV-' || id::text WHERE BTRIM(COALESCE(invoice_number, '')) = ''"))
         connection.execute(
@@ -197,3 +216,19 @@ def run_postgres_migrations():
             )
         )
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_budget_logs_invoice_id ON budget_logs (invoice_id)"))
+        connection.execute(
+            text(
+                """
+                UPDATE invoices
+                SET sponsored_by = COALESCE(
+                    (SELECT budget_logs.sponsored_by
+                     FROM budget_logs
+                     WHERE budget_logs.invoice_id = invoices.id
+                       AND BTRIM(COALESCE(budget_logs.sponsored_by, '')) <> ''
+                     LIMIT 1),
+                    ''
+                )
+                WHERE BTRIM(COALESCE(invoices.sponsored_by, '')) = ''
+                """
+            )
+        )

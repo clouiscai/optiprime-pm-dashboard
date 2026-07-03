@@ -159,6 +159,7 @@ class Invoice(Base):
     budget_log_id: Mapped[int | None] = mapped_column(ForeignKey("budget_logs.id"), nullable=True, index=True)
     vendor: Mapped[str] = mapped_column(String(160), default="")
     invoice_number: Mapped[str] = mapped_column(String(120), default="")
+    sponsored_by: Mapped[str] = mapped_column(String(160), default="")
     description: Mapped[str] = mapped_column(String(220), nullable=False)
     invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="SGD")
