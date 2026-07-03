@@ -39,7 +39,7 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
 
     all_tasks = db.query(Task).filter(Task.project_id == project.id).all()
     all_bom_items = db.query(BOMItem).filter(BOMItem.project_id == project.id).all()
-    all_logs = db.query(BudgetLog).filter(BudgetLog.project_id == project.id).all()
+    all_logs = db.query(BudgetLog).filter(BudgetLog.project_id == project.id, BudgetLog.invoice_id.is_not(None)).all()
     all_sponsors = db.query(Sponsor).filter(Sponsor.project_id == project.id).all()
     all_blockers = (
         db.query(Blocker)

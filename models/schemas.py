@@ -204,9 +204,9 @@ class BudgetLogBase(BaseModel):
     team_id: int | None = None
     category: str
     currency: str = Field(default="SGD", min_length=3, max_length=3)
-    original_amount: float | None = Field(default=None, ge=0)
+    original_amount: float | None = None
     exchange_rate_to_sgd: float = Field(default=1, gt=0)
-    amount: float = Field(default=0, ge=0)
+    amount: float = 0
     date: DateType
     notes: str = ""
     sponsored_by: str = ""
@@ -220,9 +220,9 @@ class BudgetLogUpdate(BaseModel):
     team_id: int | None = None
     category: str | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)
-    original_amount: float | None = Field(default=None, ge=0)
+    original_amount: float | None = None
     exchange_rate_to_sgd: float | None = Field(default=None, gt=0)
-    amount: float | None = Field(default=None, ge=0)
+    amount: float | None = None
     date: DateType | None = None
     notes: str | None = None
     sponsored_by: str | None = None
@@ -237,7 +237,7 @@ class BudgetLogRead(BudgetLogBase):
 
 class InvoicePurchaseCreate(BaseModel):
     category: str = Field(min_length=1, max_length=120)
-    original_amount: float = Field(ge=0)
+    original_amount: float
     notes: str = ""
 
 
@@ -268,6 +268,7 @@ class InvoiceRead(BaseModel):
     exchange_rate_to_sgd: float = 1
     amount_sgd: float = 0
     original_filename: str
+    has_pdf: bool = False
     uploaded_at: datetime
     purchases: list[BudgetLogRead] = Field(default_factory=list)
 

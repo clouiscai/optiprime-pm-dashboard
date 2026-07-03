@@ -7,7 +7,16 @@ from fastapi import UploadFile
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from api.routes import amount_in_sgd, create_budget_log, create_invoice_purchase, delete_invoice, update_invoice, upload_invoice
+from api.routes import (
+    amount_in_sgd,
+    create_budget_log,
+    create_invoice_purchase,
+    delete_invoice,
+    delete_invoice_file,
+    replace_invoice_file,
+    update_invoice,
+    upload_invoice,
+)
 from database.session import Base
 from models.entities import BudgetLog, Invoice, Project
 from models.schemas import BudgetLogCreate, InvoicePurchaseCreate, InvoiceUpdate
@@ -47,6 +56,16 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(log.amount, 335.95)
 
     def test_invoice_groups_multiple_purchases_and_deletes_them(self):
+        standalone = BudgetLogCreate(
+            project_id=self.project_id,
+            category="Legacy standalone expense",
+            currency="SGD",
+            original_amount=50,
+            exchange_rate_to_sgd=1,
+            amount=50,
+            date=date(2026, 7, 3),
+        )
+        asyncio.run(create_budget_log(standalone, "test-token", self.db))
         upload = UploadFile(filename="invoice.pdf", file=io.BytesIO(b"%PDF-1.4\n%%EOF"))
         upload.headers = {"content-type": "application/pdf"}
         invoice = asyncio.run(
@@ -78,7 +97,7 @@ class FinanceTests(unittest.TestCase):
         second = asyncio.run(
             create_invoice_purchase(
                 invoice.id,
-                InvoicePurchaseCreate(category="Shipping", original_amount=20, notes="Freight"),
+                InvoicePurchaseCreate(category="Discount", original_amount=-20, notes="Supplier discount"),
                 "test-token",
                 self.db,
             )
@@ -87,8 +106,8 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(invoice.vendor, "Blue Robotics")
         self.assertEqual(invoice.invoice_number, "BR-1042")
         self.assertEqual(invoice.sponsored_by, "Ocean Foundation")
-        self.assertEqual(invoice.original_amount, 120)
-        self.assertEqual(invoice.amount_sgd, 162)
+        self.assertEqual(invoice.original_amount, 80)
+        self.assertEqual(invoice.amount_sgd, 108)
         self.assertEqual(first.invoice_id, invoice.id)
         self.assertEqual(second.invoice_id, invoice.id)
         self.assertEqual(first.sponsored_by, "Ocean Foundation")
@@ -101,11 +120,21 @@ class FinanceTests(unittest.TestCase):
         self.db.refresh(second)
         self.assertEqual(first.sponsored_by, "")
         self.assertEqual(second.sponsored_by, "")
-        self.assertEqual(project_dashboard(self.db, project)["actual_spend"], 162)
+        self.assertEqual(project_dashboard(self.db, project)["actual_spend"], 108)
+        replacement = UploadFile(filename="corrected.pdf", file=io.BytesIO(b"%PDF-1.7\n%%EOF"))
+        replacement.headers = {"content-type": "application/pdf"}
+        asyncio.run(replace_invoice_file(invoice.id, "test-token", replacement, self.db))
+        self.db.refresh(invoice)
+        self.assertTrue(invoice.has_pdf)
+        self.assertEqual(invoice.original_filename, "corrected.pdf")
+        asyncio.run(delete_invoice_file(invoice.id, "test-token", self.db))
+        self.db.refresh(invoice)
+        self.assertFalse(invoice.has_pdf)
+        self.assertEqual(invoice.original_filename, "")
         self.assertEqual(self.db.query(Invoice).count(), 1)
         asyncio.run(delete_invoice(invoice.id, "test-token", self.db))
         self.assertEqual(self.db.query(Invoice).count(), 0)
-        self.assertEqual(self.db.query(BudgetLog).count(), 0)
+        self.assertEqual(self.db.query(BudgetLog).count(), 1)
 
 
 if __name__ == "__main__":

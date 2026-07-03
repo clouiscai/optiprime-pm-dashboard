@@ -621,9 +621,10 @@ nav button:hover {
 .invoice-form {
   align-items: end;
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) 130px minmax(180px, 1.2fr) 130px 80px 100px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 14px;
+  padding-top: 4px;
 }
 
 .invoice-form .compact-field,
@@ -637,21 +638,48 @@ nav button:hover {
 }
 
 .invoice-form button {
-  grid-column: 6;
   min-height: 36px;
   white-space: nowrap;
 }
 
+.invoice-form .invoice-vendor-field {
+  grid-column: 1 / 4;
+}
+
+.invoice-form .invoice-number-field {
+  grid-column: 4 / 7;
+}
+
+.invoice-form .invoice-description-field {
+  grid-column: 1 / 7;
+}
+
+.invoice-form .invoice-date-field {
+  grid-column: 1 / 3;
+}
+
+.invoice-form .invoice-currency-field {
+  grid-column: 3 / 5;
+}
+
+.invoice-form .invoice-rate-field {
+  grid-column: 5 / 7;
+}
+
 .invoice-form .invoice-sponsor-toggle {
-  grid-column: 1;
+  grid-column: 1 / 3;
 }
 
 .invoice-form .invoice-sponsor-name {
-  grid-column: 2 / 4;
+  grid-column: 3 / 7;
 }
 
 .invoice-form .invoice-file-field {
-  grid-column: 4 / 6;
+  grid-column: 1 / 5;
+}
+
+.invoice-form .invoice-upload-button {
+  grid-column: 5 / 7;
 }
 
 .toggle-field {
@@ -781,7 +809,7 @@ nav button:hover {
   align-items: end;
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(140px, 1fr) 130px minmax(180px, 1.2fr) 130px 80px 100px;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   padding: 14px;
 }
 
@@ -791,16 +819,59 @@ nav button:hover {
 }
 
 .invoice-edit-actions {
-  grid-column: 5 / 7;
+  grid-column: 1 / 9;
   flex-wrap: nowrap;
 }
 
-.invoice-header-edit .invoice-sponsor-toggle {
-  grid-column: 1;
+.invoice-edit-vendor {
+  grid-column: 1 / 3;
 }
 
-.invoice-header-edit .invoice-sponsor-name {
-  grid-column: 2 / 5;
+.invoice-edit-number {
+  grid-column: 3 / 5;
+}
+
+.invoice-edit-sponsor-toggle {
+  grid-column: 5 / 7;
+}
+
+.invoice-edit-sponsor-name {
+  grid-column: 7 / 9;
+}
+
+.invoice-edit-description {
+  grid-column: 1 / 9;
+}
+
+.invoice-edit-date {
+  grid-column: 1 / 4;
+}
+
+.invoice-edit-currency {
+  grid-column: 4 / 6;
+}
+
+.invoice-edit-rate {
+  grid-column: 6 / 9;
+}
+
+.invoice-pdf-editor {
+  align-items: end;
+  border-top: 1px solid #d9e0e7;
+  display: grid;
+  gap: 8px;
+  grid-column: 1 / 9;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  padding-top: 10px;
+}
+
+.invoice-pdf-editor > * {
+  min-width: 0;
+}
+
+.invoice-pdf-editor button {
+  min-height: 36px;
+  white-space: nowrap;
 }
 
 .purchase-section-head {
@@ -877,6 +948,11 @@ nav button:hover {
 
 .invoice-purchase-row .row-actions {
   flex-wrap: nowrap;
+}
+
+.muted-placeholder {
+  color: var(--op-muted);
+  opacity: 0.65;
 }
 
 .invoice-empty-purchases {
@@ -2052,18 +2128,15 @@ progress {
   .bom-form,
   .invoice-form,
   .invoice-header-edit,
+  .invoice-pdf-editor,
   .invoice-purchase-form,
   .budget-form,
   .budget-log-edit-grid {
     grid-template-columns: 1fr 1fr;
   }
 
-  .invoice-form .invoice-sponsor-toggle,
-  .invoice-form .invoice-sponsor-name,
-  .invoice-form .invoice-file-field,
-  .invoice-form button,
-  .invoice-header-edit .invoice-sponsor-toggle,
-  .invoice-header-edit .invoice-sponsor-name,
+  .invoice-form > *,
+  .invoice-header-edit > *,
   .invoice-edit-actions {
     grid-column: auto;
   }
@@ -2095,6 +2168,7 @@ progress {
   .bom-form,
   .invoice-form,
   .invoice-header-edit,
+  .invoice-pdf-editor,
   .invoice-purchase-form,
   .budget-form,
   .budget-log-edit-grid {

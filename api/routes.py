@@ -130,8 +130,6 @@ def normalize_currency(value: str) -> str:
 
 
 def amount_in_sgd(original_amount: float, exchange_rate_to_sgd: float) -> float:
-    if original_amount < 0:
-        raise HTTPException(400, "Amount cannot be negative")
     if exchange_rate_to_sgd <= 0:
         raise HTTPException(400, "Exchange rate must be greater than zero")
     converted = Decimal(str(original_amount)) * Decimal(str(exchange_rate_to_sgd))
@@ -174,6 +172,18 @@ def validate_invoice_identity(
     if query.first():
         raise HTTPException(409, "This vendor already has an invoice with that number")
     return clean_vendor, clean_number
+
+
+async def read_invoice_pdf(file: UploadFile) -> tuple[str, bytes]:
+    original_name = Path(file.filename or "invoice.pdf").name
+    if file.content_type != "application/pdf" or Path(original_name).suffix.lower() != ".pdf":
+        raise HTTPException(400, "Only PDF invoices are accepted")
+    content = await file.read(MAX_INVOICE_BYTES + 1)
+    if len(content) > MAX_INVOICE_BYTES:
+        raise HTTPException(413, "Invoice PDF must be 10 MB or smaller")
+    if not content.startswith(b"%PDF"):
+        raise HTTPException(400, "Only valid PDF invoices are accepted")
+    return original_name, content
 
 
 def normalize_bom_item_versions(db: Session, item: BOMItem) -> bool:
@@ -860,19 +870,11 @@ async def upload_invoice(
     get_project_or_404(db, project_id)
     ensure_invoice_file_data_column(db)
     clean_vendor, clean_number = validate_invoice_identity(db, project_id, vendor, invoice_number)
-    original_name = Path(file.filename or "invoice.pdf").name
-    if file.content_type != "application/pdf" or Path(original_name).suffix.lower() != ".pdf":
-        raise HTTPException(400, "Only PDF invoices are accepted")
+    original_name, content = await read_invoice_pdf(file)
 
     clean_description = description.strip()
     if not clean_description or len(clean_description) > 220:
         raise HTTPException(400, "Invoice description must be between 1 and 220 characters")
-
-    content = await file.read(MAX_INVOICE_BYTES + 1)
-    if len(content) > MAX_INVOICE_BYTES:
-        raise HTTPException(413, "Invoice PDF must be 10 MB or smaller")
-    if not content.startswith(b"%PDF"):
-        raise HTTPException(400, "Only valid PDF invoices are accepted")
 
     currency_code = normalize_currency(currency)
     amount_in_sgd(0, exchange_rate_to_sgd)
@@ -924,6 +926,45 @@ async def upload_invoice(
     db.refresh(invoice)
     await manager.broadcast("invoice.updated", {"project_id": project_id, "invoice_id": invoice.id})
     return invoice
+
+
+@router.post("/invoices/{invoice_id}/file", response_model=InvoiceRead)
+async def replace_invoice_file(
+    invoice_id: int,
+    _: Writable,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    invoice = db.get(Invoice, invoice_id)
+    if not invoice:
+        raise HTTPException(404, "Invoice not found")
+    original_name, content = await read_invoice_pdf(file)
+    old_path = (INVOICE_DIR / invoice.stored_filename).resolve() if invoice.stored_filename else None
+    invoice.original_filename = original_name
+    invoice.stored_filename = str(Path(str(invoice.project_id)) / f"{uuid4().hex}.pdf")
+    invoice.file_data = base64.b64encode(content).decode("ascii")
+    db.commit()
+    db.refresh(invoice)
+    if old_path and str(old_path).startswith(str(INVOICE_DIR.resolve())) and old_path.exists():
+        old_path.unlink()
+    await manager.broadcast("invoice.updated", {"project_id": invoice.project_id, "invoice_id": invoice.id})
+    return invoice
+
+
+@router.delete("/invoices/{invoice_id}/file", status_code=204)
+async def delete_invoice_file(invoice_id: int, _: Writable, db: Session = Depends(get_db)):
+    invoice = db.get(Invoice, invoice_id)
+    if not invoice:
+        raise HTTPException(404, "Invoice not found")
+    old_path = (INVOICE_DIR / invoice.stored_filename).resolve() if invoice.stored_filename else None
+    invoice.original_filename = ""
+    invoice.stored_filename = ""
+    invoice.file_data = ""
+    db.commit()
+    if old_path and str(old_path).startswith(str(INVOICE_DIR.resolve())) and old_path.exists():
+        old_path.unlink()
+    await manager.broadcast("invoice.updated", {"project_id": invoice.project_id, "invoice_id": invoice.id})
+    return Response(status_code=204)
 
 
 @router.patch("/invoices/{invoice_id}", response_model=InvoiceRead)
@@ -1009,6 +1050,8 @@ def view_invoice(invoice_id: int, _: Protected, db: Session = Depends(get_db)):
     invoice = db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(404, "Invoice not found")
+    if not invoice.has_pdf:
+        raise HTTPException(404, "No PDF is attached to this invoice")
     safe_name = Path(invoice.original_filename).name.replace(chr(34), "").replace("\r", "").replace("\n", "")
     if invoice.file_data:
         try:

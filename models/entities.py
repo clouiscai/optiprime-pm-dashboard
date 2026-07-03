@@ -180,6 +180,10 @@ class Invoice(Base):
         order_by="BudgetLog.id",
     )
 
+    @property
+    def has_pdf(self) -> bool:
+        return bool(self.file_data or self.original_filename)
+
 
 class Sponsor(Base):
     __tablename__ = "sponsors"
