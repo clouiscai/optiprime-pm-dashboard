@@ -435,7 +435,6 @@ export default function App() {
       <main className="workspace">
         <header className="topbar">
           <div>
-            <p>{selectedTeam === "master" ? currentProject?.description : data.dashboard?.team?.description}</p>
             <h1>{activeTab}</h1>
           </div>
           <div className="topbar-meta">
