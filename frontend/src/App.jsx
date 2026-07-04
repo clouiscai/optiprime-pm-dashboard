@@ -1514,6 +1514,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
   const [showPlan, setShowPlan] = useState(false);
   const currencyOptions = useMemo(() => [...new Set([...commonCurrencies, ...invoices.map((invoice) => invoice.currency).filter(Boolean)])].sort(), [invoices]);
   const lineTypeOptions = useMemo(() => [...new Set([
+    "Item",
     "Materials",
     "Shipping",
     "Tax",
@@ -1780,7 +1781,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
 }
 
 function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAddPurchase, onPatchPurchase, onDeletePurchase, onReplacePdf, onDeletePdf }) {
-  const emptyPurchase = { category: "Materials", quantity: 1, original_amount: "", notes: "" };
+  const emptyPurchase = { category: "Item", quantity: 1, original_amount: "", notes: "" };
   const [purchaseDraft, setPurchaseDraft] = useState(emptyPurchase);
   const [replacementPdf, setReplacementPdf] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -1913,7 +1914,7 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
         <form className="invoice-purchase-form" onSubmit={addPurchase}>
           <label className="compact-field"><span>Type</span><input list="invoice-purchase-categories" value={purchaseDraft.category} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, category: event.target.value })} /></label>
           <label className="compact-field purchase-description-field"><span>What It Is</span><input placeholder="Item, shipping, tax, fee..." value={purchaseDraft.notes} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, notes: event.target.value })} /></label>
-          <label className="compact-field"><span>Quantity</span><input type="number" min="0.001" step="1" value={purchaseDraft.quantity} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, quantity: event.target.value })} /></label>
+          <label className="compact-field"><span>Quantity</span><input type="number" min="0.000001" step="any" value={purchaseDraft.quantity} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, quantity: event.target.value })} /></label>
           <label className="compact-field"><span>Unit Price ({invoice.currency})</span><input type="number" step="0.01" value={purchaseDraft.original_amount} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, original_amount: event.target.value })} /></label>
           <button>Add Line</button>
         </form>
@@ -1961,7 +1962,7 @@ function InvoicePurchaseRow({ purchase, canEdit, onPatch, onDelete }) {
         <>
           <input aria-label="Type" list="invoice-purchase-categories" value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} />
           <input aria-label="What it is" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
-          <input aria-label="Quantity" type="number" min="0.001" step="1" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} />
+          <input aria-label="Quantity" type="number" min="0.000001" step="any" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} />
           <input aria-label="Unit price" type="number" step="0.01" value={draft.original_amount} onChange={(event) => setDraft({ ...draft, original_amount: event.target.value })} />
           <strong>{currencyMoney(Number(draft.quantity || 0) * Number(draft.original_amount || 0), purchase.currency)}</strong>
           <strong>{money(convertedSgd(Number(draft.quantity || 0) * Number(draft.original_amount || 0), purchase.exchange_rate_to_sgd))}</strong>
