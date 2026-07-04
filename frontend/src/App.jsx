@@ -1512,6 +1512,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
   const [invoiceDraft, setInvoiceDraft] = useState(newInvoiceDraft);
   const [showInvoiceComposer, setShowInvoiceComposer] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
+  const [invoiceSearch, setInvoiceSearch] = useState("");
   const currencyOptions = useMemo(() => [...new Set([...commonCurrencies, ...invoices.map((invoice) => invoice.currency).filter(Boolean)])].sort(), [invoices]);
   const lineTypeOptions = useMemo(() => [...new Set([
     "Item",
@@ -1523,20 +1524,48 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
     "Discount",
     ...invoices.flatMap((invoice) => (invoice.purchases || []).map((purchase) => purchase.category)).filter(Boolean),
   ])].sort(), [invoices]);
+  const filteredInvoices = useMemo(() => {
+    const terms = invoiceSearch.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return invoices;
+    return invoices.filter((invoice) => {
+      const searchable = [
+        invoice.vendor,
+        invoice.invoice_number,
+        invoice.description,
+        invoice.invoice_date,
+        invoice.currency,
+        invoice.exchange_rate_to_sgd,
+        invoice.original_amount,
+        invoice.amount_sgd,
+        invoice.sponsored_by,
+        invoice.original_filename,
+        teamCode(teams, invoice.team_id),
+        ...(invoice.purchases || []).flatMap((purchase) => [
+          purchase.category,
+          purchase.notes,
+          purchase.quantity,
+          purchase.original_amount,
+          purchase.amount,
+        ]),
+      ].filter((value) => value !== null && value !== undefined).join(" ").toLocaleLowerCase();
+      return terms.every((term) => searchable.includes(term));
+    });
+  }, [invoiceSearch, invoices, teams]);
   const vendorGroups = useMemo(() => {
     const groups = new Map();
-    invoices.forEach((invoice) => {
+    filteredInvoices.forEach((invoice) => {
       const vendor = invoice.vendor?.trim() || "Unassigned Vendor";
       const key = vendor.toLocaleLowerCase();
       if (!groups.has(key)) groups.set(key, { vendor, invoices: [] });
       groups.get(key).invoices.push(invoice);
     });
     return [...groups.values()].sort((a, b) => a.vendor.localeCompare(b.vendor));
-  }, [invoices]);
+  }, [filteredInvoices]);
 
   useEffect(() => {
     setInvoiceDraft(newInvoiceDraft());
     setShowInvoiceComposer(false);
+    setInvoiceSearch("");
   }, [projectId, selectedTeam]);
 
   async function patchPurchase(logId, patch) {
@@ -1680,6 +1709,13 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
           {canEdit && <button type="button" className={showInvoiceComposer ? "active" : ""} onClick={() => setShowInvoiceComposer((visible) => !visible)}>{showInvoiceComposer ? "Cancel" : "Add New"}</button>}
         </div>
         <div className="invoice-panel">
+            <div className="invoice-search-row">
+              <label className="compact-field">
+                <span>Search Invoices</span>
+                <input type="search" placeholder="Vendor, invoice number, item, team, amount..." value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} />
+              </label>
+              <span>{filteredInvoices.length} of {invoices.length}</span>
+            </div>
             {canEdit && showInvoiceComposer && (
               <form className="invoice-form" onSubmit={uploadInvoice}>
                 <label className="compact-field invoice-team-field">
@@ -1759,6 +1795,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
                 </section>
               ))}
               {invoices.length === 0 && <p className="empty-note">No invoices uploaded yet.</p>}
+              {invoices.length > 0 && filteredInvoices.length === 0 && <p className="empty-note">No invoices match your search.</p>}
             </div>
           </div>
       </div>

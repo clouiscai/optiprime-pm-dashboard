@@ -1002,6 +1002,21 @@ nav button:hover {
   justify-content: space-between;
 }
 
+.invoice-search-row {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(240px, 520px) auto;
+  margin-bottom: 14px;
+}
+
+.invoice-search-row > span {
+  color: var(--op-muted);
+  font-size: 12px;
+  padding-bottom: 9px;
+  white-space: nowrap;
+}
+
 .budget-split.bom-expanded {
   grid-template-columns: 1fr;
 }
@@ -2260,6 +2275,14 @@ progress {
   .invoice-purchase-row {
     grid-template-columns: 1fr;
     min-width: 0;
+  }
+
+  .invoice-search-row {
+    grid-template-columns: 1fr;
+  }
+
+  .invoice-search-row > span {
+    padding-bottom: 0;
   }
 
   .invoice-purchase-row .row-actions {
