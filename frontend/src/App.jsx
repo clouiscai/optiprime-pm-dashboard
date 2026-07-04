@@ -1581,8 +1581,8 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
 
   async function uploadInvoice(event) {
     event.preventDefault();
-    if (!invoiceDraft.vendor.trim() || !invoiceDraft.invoice_number.trim() || !invoiceDraft.description.trim() || !invoiceDraft.file) {
-      window.alert("Enter the vendor, invoice number, description, and PDF invoice.");
+    if (!invoiceDraft.vendor.trim() || !invoiceDraft.description.trim() || !invoiceDraft.file) {
+      window.alert("Enter the vendor, description, and PDF invoice.");
       return;
     }
     if (!/^[A-Z]{3}$/.test(invoiceDraft.currency.trim().toUpperCase())) {
@@ -1651,7 +1651,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
   }
 
   async function deleteInvoice(invoice) {
-    if (!window.confirm(`Delete invoice ${invoice.invoice_number} from ${invoice.vendor} and all of its purchase lines?`)) return;
+    if (!window.confirm(`Delete invoice ${invoice.invoice_number || "NA"} from ${invoice.vendor} and all of its purchase lines?`)) return;
     await apiFetch(`/invoices/${invoice.id}`, token, { method: "DELETE" });
     await onRefresh();
   }
@@ -1683,7 +1683,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
   }
 
   async function deleteInvoicePdf(invoice) {
-    if (!window.confirm(`Remove the PDF from invoice ${invoice.invoice_number}? The invoice and its lines will remain.`)) return;
+    if (!window.confirm(`Remove the PDF from invoice ${invoice.invoice_number || "NA"}? The invoice and its lines will remain.`)) return;
     await apiFetch(`/invoices/${invoice.id}/file`, token, { method: "DELETE" });
     await onRefresh();
   }
@@ -1731,7 +1731,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
                 </label>
                 <label className="compact-field invoice-number-field">
                   <span>Invoice Number</span>
-                  <input placeholder="Invoice number" value={invoiceDraft.invoice_number} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoice_number: event.target.value })} />
+                  <input placeholder="Optional" value={invoiceDraft.invoice_number} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoice_number: event.target.value })} />
                 </label>
                 <label className="compact-field invoice-description-field">
                   <span>Description</span>
@@ -1866,7 +1866,7 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
   }
 
   async function saveHeader() {
-    if (!headerDraft.vendor.trim() || !headerDraft.invoice_number.trim() || !headerDraft.description.trim()) return;
+    if (!headerDraft.vendor.trim() || !headerDraft.description.trim()) return;
     if (headerDraft.is_sponsored && !headerDraft.sponsored_by.trim()) {
       window.alert("Enter the sponsor name for this sponsored invoice.");
       return;
@@ -1902,7 +1902,7 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
         <div className="invoice-header-edit">
           <label className="compact-field invoice-edit-team"><span>Team</span><select value={headerDraft.team_id || ""} onChange={(event) => setHeaderDraft({ ...headerDraft, team_id: event.target.value ? Number(event.target.value) : "" })}><option value="">General</option>{teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}</select></label>
           <label className="compact-field invoice-edit-vendor"><span>Vendor</span><input value={headerDraft.vendor} onChange={(event) => setHeaderDraft({ ...headerDraft, vendor: event.target.value })} /></label>
-          <label className="compact-field invoice-edit-number"><span>Invoice Number</span><input value={headerDraft.invoice_number} onChange={(event) => setHeaderDraft({ ...headerDraft, invoice_number: event.target.value })} /></label>
+          <label className="compact-field invoice-edit-number"><span>Invoice Number</span><input placeholder="Optional" value={headerDraft.invoice_number} onChange={(event) => setHeaderDraft({ ...headerDraft, invoice_number: event.target.value })} /></label>
           <label className="compact-field invoice-edit-sponsor-toggle"><span>Sponsorship</span><div className="toggle-field"><input type="checkbox" checked={headerDraft.is_sponsored} onChange={(event) => setHeaderDraft({ ...headerDraft, is_sponsored: event.target.checked, sponsored_by: event.target.checked ? headerDraft.sponsored_by : "" })} /><span>Sponsored</span></div></label>
           <label className="compact-field invoice-edit-sponsor-name"><span>Sponsor Name</span><input disabled={!headerDraft.is_sponsored} placeholder={headerDraft.is_sponsored ? "Sponsor name" : "Not sponsored"} value={headerDraft.sponsored_by} onChange={(event) => setHeaderDraft({ ...headerDraft, sponsored_by: event.target.value })} /></label>
           <label className="compact-field invoice-edit-description"><span>Description</span><input value={headerDraft.description} onChange={(event) => setHeaderDraft({ ...headerDraft, description: event.target.value })} /></label>
@@ -1923,7 +1923,7 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
       ) : (
         <header className="invoice-card-header">
           <div>
-            <span className="invoice-kicker">{teamCode(teams, invoice.team_id)} | Invoice {invoice.invoice_number}</span>
+            <span className="invoice-kicker">{teamCode(teams, invoice.team_id)} | Invoice <span className={invoice.invoice_number ? "" : "muted-na"}>{invoice.invoice_number || "NA"}</span></span>
             <h4>{invoice.description}</h4>
             <p>{shortDate(invoice.invoice_date || invoice.uploaded_at?.slice(0, 10))} | {invoice.has_pdf ? invoice.original_filename : "No PDF attached"}</p>
             <span className={`invoice-sponsor-status${invoice.sponsored_by ? " sponsored" : ""}`}>{invoice.sponsored_by ? `Sponsored by ${invoice.sponsored_by}` : "Not sponsored"}</span>
@@ -2591,7 +2591,7 @@ function Sponsors({ projectId, selectedTeam, token, teams, sponsors, invoices, a
         team_id: invoice.team_id,
         name: invoice.description,
         value: invoice.amount_sgd,
-        notes: `${invoice.invoice_number} - ${shortDate(invoice.invoice_date)}`,
+        notes: `${invoice.invoice_number || "NA"} - ${shortDate(invoice.invoice_date)}`,
       })),
     ...(assets || [])
       .filter((asset) => asset.source === "sponsored" && asset.provider?.trim())

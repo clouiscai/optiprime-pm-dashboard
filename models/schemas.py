@@ -247,7 +247,7 @@ class InvoicePurchaseCreate(BaseModel):
 class InvoiceUpdate(BaseModel):
     team_id: int | None = None
     vendor: str | None = Field(default=None, min_length=1, max_length=160)
-    invoice_number: str | None = Field(default=None, min_length=1, max_length=120)
+    invoice_number: str | None = Field(default=None, max_length=120)
     sponsored_by: str | None = Field(default=None, max_length=160)
     description: str | None = Field(default=None, min_length=1, max_length=220)
     invoice_date: DateType | None = None

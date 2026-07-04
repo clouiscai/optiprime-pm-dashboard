@@ -170,7 +170,7 @@ def validate_invoice_identity(
     if not clean_vendor:
         raise HTTPException(400, "Vendor is required")
     if not clean_number:
-        raise HTTPException(400, "Invoice number is required")
+        return clean_vendor, ""
     query = db.query(Invoice).filter(
         Invoice.project_id == project_id,
         Invoice.vendor.ilike(clean_vendor),
@@ -869,7 +869,7 @@ async def upload_invoice(
     _: Writable,
     project_id: int = Form(...),
     vendor: str = Form(...),
-    invoice_number: str = Form(...),
+    invoice_number: str = Form(""),
     description: str = Form(...),
     invoice_date: DateType = Form(...),
     currency: str = Form("SGD"),

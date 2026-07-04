@@ -632,6 +632,11 @@ nav button:hover {
   min-width: 0;
 }
 
+.muted-na {
+  color: #8b8b91;
+  font-weight: 500;
+}
+
 .invoice-form input {
   min-width: 0;
   width: 100%;

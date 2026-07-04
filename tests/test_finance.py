@@ -60,6 +60,37 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(log.exchange_rate_to_sgd, 1.3526)
         self.assertEqual(log.amount, 335.95)
 
+    def test_invoice_number_is_optional(self):
+        invoices = []
+        for description in ("First receipt", "Second receipt"):
+            upload = UploadFile(filename="invoice.pdf", file=io.BytesIO(b"%PDF-1.4\n%%EOF"))
+            upload.headers = {"content-type": "application/pdf"}
+            invoices.append(
+                asyncio.run(
+                    upload_invoice(
+                        "test-token",
+                        project_id=self.project_id,
+                        vendor="Local Supplier",
+                        invoice_number="",
+                        sponsored_by="",
+                        description=description,
+                        invoice_date=date(2026, 7, 4),
+                        currency="SGD",
+                        exchange_rate_to_sgd=1,
+                        team_id=None,
+                        category="",
+                        original_amount=0,
+                        file=upload,
+                        db=self.db,
+                    )
+                )
+            )
+
+        self.assertEqual([invoice.invoice_number for invoice in invoices], ["", ""])
+        asyncio.run(update_invoice(invoices[0].id, InvoiceUpdate(invoice_number=""), "test-token", self.db))
+        self.db.refresh(invoices[0])
+        self.assertEqual(invoices[0].invoice_number, "")
+
     def test_invoice_groups_multiple_purchases_and_deletes_them(self):
         standalone = BudgetLogCreate(
             project_id=self.project_id,
