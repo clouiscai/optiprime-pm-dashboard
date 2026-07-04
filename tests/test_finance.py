@@ -19,7 +19,7 @@ from api.routes import (
     upload_invoice,
 )
 from database.session import Base
-from models.entities import BudgetLog, Invoice, Project, Team
+from models.entities import BOMItem, BudgetLog, Invoice, Project, Team
 from models.schemas import BudgetLogCreate, BudgetLogUpdate, InvoicePurchaseCreate, InvoiceUpdate
 from services.calculations import project_dashboard
 
@@ -90,6 +90,23 @@ class FinanceTests(unittest.TestCase):
         asyncio.run(update_invoice(invoices[0].id, InvoiceUpdate(invoice_number=""), "test-token", self.db))
         self.db.refresh(invoices[0])
         self.assertEqual(invoices[0].invoice_number, "")
+
+    def test_sponsored_materials_remain_in_bom_estimate(self):
+        self.db.add_all(
+            [
+                BOMItem(project_id=self.project_id, team_id=self.uav_id, name="Purchased frame", quantity=2, unit_cost=50),
+                BOMItem(project_id=self.project_id, team_id=self.uav_id, name="Sponsored sensor", quantity=1, unit_cost=125, sponsored_by="Partner"),
+                BOMItem(project_id=self.project_id, team_id=None, name="Shared sponsored filament", quantity=3, unit_cost=30, sponsored_by="Partner"),
+            ]
+        )
+        self.db.commit()
+
+        master = project_dashboard(self.db, self.db.get(Project, self.project_id))
+        team = project_dashboard(self.db, self.db.get(Project, self.project_id), self.uav_id)
+
+        self.assertEqual(master["expected_spend"], 315)
+        self.assertEqual(team["expected_spend"], 315)
+        self.assertEqual(master["team_summaries"][0]["expected_spend"], 315)
 
     def test_invoice_groups_multiple_purchases_and_deletes_them(self):
         standalone = BudgetLogCreate(

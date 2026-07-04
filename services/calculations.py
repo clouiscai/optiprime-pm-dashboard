@@ -34,7 +34,7 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
     teams = db.query(Team).filter(Team.project_id == project.id).order_by(Team.code).all()
     team_count = max(1, len(teams))
     shared_bom_items = db.query(BOMItem).filter(BOMItem.project_id == project.id, BOMItem.team_id.is_(None)).all()
-    shared_bom_total = round(sum(item.quantity * item.unit_cost for item in shared_bom_items if not item.sponsored_by), 2)
+    shared_bom_total = round(sum(item.quantity * item.unit_cost for item in shared_bom_items), 2)
     shared_bom_per_team = round(shared_bom_total / team_count, 2) if teams else 0
 
     all_tasks = db.query(Task).filter(Task.project_id == project.id).all()
@@ -77,9 +77,9 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
     done_tasks = len([t for t in progress_tasks if t.status == "done"])
     overdue_tasks = len([t for t in progress_tasks if t.due_date and t.due_date < date.today() and t.status != "done"])
     completion = round((sum(t.progress for t in progress_tasks) / len(progress_tasks)), 1) if progress_tasks else 0
-    bom_total = round(sum(item.quantity * item.unit_cost for item in bom_items if not item.sponsored_by), 2)
+    bom_total = round(sum(item.quantity * item.unit_cost for item in bom_items), 2)
     if team_id:
-        own_bom_total = round(sum(item.quantity * item.unit_cost for item in bom_items if item.team_id == team_id and not item.sponsored_by), 2)
+        own_bom_total = round(sum(item.quantity * item.unit_cost for item in bom_items if item.team_id == team_id), 2)
         bom_total = round(own_bom_total + shared_bom_per_team, 2)
     budget_log_total = round(sum(log.amount for log in logs if not log.sponsored_by), 2)
     sponsor_total = round(sum(sponsor.amount for sponsor in sponsors), 2)
@@ -95,7 +95,7 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
     team_summaries = []
     for summary_team in teams:
         team_tasks = [task for task in all_tasks if task.team_id == summary_team.id]
-        team_bom_total = sum(item.quantity * item.unit_cost for item in all_bom_items if item.team_id == summary_team.id and not item.sponsored_by)
+        team_bom_total = sum(item.quantity * item.unit_cost for item in all_bom_items if item.team_id == summary_team.id)
         team_bom_total += shared_bom_per_team
         team_log_total = sum(log.amount for log in all_logs if log.team_id == summary_team.id and not log.sponsored_by)
         team_sponsor_total = sum(sponsor.amount for sponsor in all_sponsors if sponsor.team_id == summary_team.id)

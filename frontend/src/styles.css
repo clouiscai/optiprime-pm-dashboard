@@ -183,12 +183,32 @@ h2 {
   border-color: #3b8062;
 }
 
-nav {
+.sidebar-nav {
   display: grid;
-  gap: 6px;
+  gap: 14px;
 }
 
-nav button {
+.sidebar-nav-group {
+  display: grid;
+  gap: 5px;
+}
+
+.sidebar-nav-group h2 {
+  margin: 0;
+  padding: 0 12px;
+  color: #8f98a7;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.sidebar-nav-group > div {
+  display: grid;
+  gap: 4px;
+}
+
+.sidebar-nav button {
   justify-content: flex-start;
   text-align: left;
   border-color: transparent;
@@ -196,8 +216,8 @@ nav button {
   color: #d8dee8;
 }
 
-nav button.active,
-nav button:hover {
+.sidebar-nav button.active,
+.sidebar-nav button:hover {
   background: #263241;
   color: #ffffff;
   border-color: #3d4a5b;
@@ -2010,7 +2030,7 @@ progress {
 }
 
 .plan-table-wrap table {
-  min-width: 760px;
+  min-width: 650px;
 }
 
 .plan-table-wrap td {
@@ -2144,8 +2164,9 @@ progress {
     min-height: auto;
   }
 
-  nav {
-    grid-template-columns: repeat(3, 1fr);
+  .sidebar-nav {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: start;
   }
 
   .metrics-grid,
@@ -2192,7 +2213,6 @@ progress {
     flex-direction: column;
   }
 
-  nav,
   .dashboard-band,
   .split,
   .kanban,
@@ -2406,8 +2426,8 @@ select {
   border-color: var(--op-coral);
 }
 
-nav button.active,
-nav button:hover {
+.sidebar-nav button.active,
+.sidebar-nav button:hover {
   background: #292326;
   border-color: rgba(255, 59, 59, 0.48);
 }
@@ -2513,12 +2533,16 @@ progress {
     grid-template-columns: repeat(4, minmax(70px, 1fr));
   }
 
-  nav {
-    grid-template-columns: repeat(3, minmax(96px, 1fr));
-    gap: 6px;
+  .sidebar-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
 
-  nav button {
+  .sidebar-nav-group > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sidebar-nav button {
     min-height: 34px;
     padding: 0 10px;
   }

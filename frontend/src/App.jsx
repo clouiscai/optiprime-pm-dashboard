@@ -2,7 +2,12 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import optiPrimeLogo from "./assets/OptiPrime_logo_blackbg.jpg";
 import { REALTIME_ENABLED, apiFetch, downloadCsv, getApiBase, getWsUrl } from "./api";
 
-const tabs = ["Dashboard", "Tasks", "Kanban", "Gantt", "BOM", "Finance", "Equipments/Asset", "Members", "Sponsors", "Blockers"];
+const navigationGroups = [
+  { label: "", tabs: ["Dashboard"] },
+  { label: "Timelines", tabs: ["Tasks", "Kanban", "Gantt"] },
+  { label: "Finance", tabs: ["BOM", "Equipment/Asset", "Spending"] },
+  { label: "Partners", tabs: ["Sponsors", "Members"] },
+];
 const statusColumns = [
   ["todo", "To Do"],
   ["in_progress", "In Progress"],
@@ -189,10 +194,10 @@ export default function App() {
         teams: apiFetch(`/projects/${projectId}/teams`, token),
         dashboard: apiFetch(`/projects/${projectId}/dashboard${query}`, token),
       };
-      if (["Dashboard", "Tasks", "Kanban", "Gantt", "Blockers", "tasks"].includes(normalizedScope)) {
+      if (["Dashboard", "Tasks", "Kanban", "Gantt", "tasks"].includes(normalizedScope)) {
         requests.tasks = apiFetch(`/projects/${projectId}/tasks${query}`, token);
       }
-      if (["Dashboard", "Tasks", "Blockers", "tasks"].includes(normalizedScope)) {
+      if (["Dashboard", "Tasks", "tasks"].includes(normalizedScope)) {
         requests.blockers = apiFetch(`/projects/${projectId}/blockers${query}`, token);
       }
       if (["Tasks", "Members"].includes(normalizedScope)) {
@@ -201,10 +206,10 @@ export default function App() {
       if (normalizedScope === "BOM") {
         requests.bom = apiFetch(`/projects/${projectId}/bom${query}`, token);
       }
-      if (normalizedScope === "Finance") {
+      if (normalizedScope === "Spending") {
         requests.invoices = apiFetch(`/projects/${projectId}/invoices${query}`, token);
       }
-      if (normalizedScope === "Equipments/Asset") {
+      if (normalizedScope === "Equipment/Asset") {
         requests.assets = apiFetch(`/projects/${projectId}/assets${query}`, token);
       }
       if (normalizedScope === "Sponsors") {
@@ -410,11 +415,18 @@ export default function App() {
             </button>
           ))}
         </div>
-        <nav>
-          {tabs.map((tab) => (
-            <button className={activeTab === tab ? "active" : ""} key={tab} onClick={() => setActiveTab(tab)}>
-              {tab}
-            </button>
+        <nav className="sidebar-nav">
+          {navigationGroups.map((group) => (
+            <section className="sidebar-nav-group" key={group.label || "primary"}>
+              {group.label && <h2>{group.label}</h2>}
+              <div>
+                {group.tabs.map((tab) => (
+                  <button className={activeTab === tab ? "active" : ""} key={tab} onClick={() => setActiveTab(tab)}>
+                    {tab}
+                  </button>
+                ))}
+              </div>
+            </section>
           ))}
         </nav>
         <button className="signout-button" onClick={logout}>Log Out</button>
@@ -488,7 +500,7 @@ export default function App() {
               onRefresh={refresh}
             />
           )}
-          {activeTab === "Finance" && (
+          {activeTab === "Spending" && (
             <Finance
               projectId={projectId}
               selectedTeam={selectedTeam}
@@ -500,7 +512,7 @@ export default function App() {
               onRefresh={refresh}
             />
           )}
-          {activeTab === "Equipments/Asset" && (
+          {activeTab === "Equipment/Asset" && (
             <Assets
               projectId={projectId}
               teamId={scopedTeamId}
@@ -537,9 +549,6 @@ export default function App() {
               canEdit={canEdit}
               onRefresh={refresh}
             />
-          )}
-          {activeTab === "Blockers" && (
-            <Blockers token={token} blockers={data.blockers} tasks={data.tasks} canEdit={canEdit} onRefresh={refresh} />
           )}
         </div>
       </main>
@@ -613,7 +622,7 @@ function Metric({ label, value, detail, tone = "" }) {
     <article className={`metric ${tone}`}>
       <span>{label}</span>
       <strong>{value}</strong>
-      <p>{detail}</p>
+      {detail && <p>{detail}</p>}
     </article>
   );
 }
@@ -623,7 +632,7 @@ function MetricButton({ label, value, detail, tone = "", onClick }) {
     <button className={`metric metric-button ${tone}`} onClick={onClick}>
       <span>{label}</span>
       <strong>{value}</strong>
-      <p>{detail}</p>
+      {detail && <p>{detail}</p>}
     </button>
   );
 }
@@ -1372,8 +1381,7 @@ function Bom({ projectId, teamId, selectedTeam, token, teams, dashboard, bom, ca
     if (b === "Uncategorized") return -1;
     return a.localeCompare(b);
   });
-  const finalisedBomTotal = bom.reduce((total, item) => total + (item.finalized && !item.sponsored_by ? item.total_cost : 0), 0);
-  const sponsoredBomTotal = bom.reduce((total, item) => total + (item.sponsored_by ? item.total_cost : 0), 0);
+  const finalisedBomTotal = bom.reduce((total, item) => total + (item.finalized ? item.total_cost : 0), 0);
 
   useEffect(() => {
     setBomDraft({ project_id: projectId, team_id: defaultBomTeam, category: "", product_number: "", product: "", vendor: "", name: "", quantity: 1, unit_cost: 0, sponsored_by: "" });
@@ -1416,10 +1424,9 @@ function Bom({ projectId, teamId, selectedTeam, token, teams, dashboard, bom, ca
   return (
     <section className="stack">
       <div className="metrics-grid">
-        <Metric label="Expected Materials" value={money(dashboard?.expected_spend)} detail="Non-sponsored BOM estimate" />
+        <Metric label="Expected Materials" value={money(dashboard?.expected_spend)} />
         <Metric label="Finalised Estimate" value={money(finalisedBomTotal)} detail="Approved material specification" />
-        <Metric label="Sponsored Materials" value={money(sponsoredBomTotal)} detail="Estimated in-kind value" />
-        <Metric label="BOM Entries" value={bom.length} detail="Material records in this scope" />
+        <Metric label="BOM Entries" value={bom.length} />
       </div>
 
       <div className="bom-panel">
@@ -1698,9 +1705,9 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
       </datalist>
       <div className="metrics-grid">
         <MetricButton label="Planned Budget" value={money(dashboard?.planned_budget)} detail="Open team allocation" onClick={() => setShowPlan(true)} />
-        <Metric label="Actual Spending" value={money(dashboard?.actual_spend)} detail="Non-sponsored invoice total" />
-        <Metric label="Remaining" value={money(dashboard?.remaining_budget)} detail="Planned minus actual" tone={dashboard?.remaining_budget < 0 ? "danger" : ""} />
-        <Metric label="Invoice Records" value={invoices.length} detail="Tracked invoice records" />
+        <Metric label="Spending" value={money(dashboard?.actual_spend)} />
+        <Metric label="Remaining" value={money(dashboard?.remaining_budget)} tone={dashboard?.remaining_budget < 0 ? "danger" : ""} />
+        <Metric label="Invoice Records" value={invoices.length} />
       </div>
 
       <div className="finance-panel">
@@ -2086,7 +2093,7 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
         <div className="table-wrap plan-table-wrap">
           <table>
             <thead>
-              <tr><th>Team</th><th>Domain</th><th>Allocation</th><th>Actual Spend</th><th>Remaining</th><th>Share</th>{canEdit && <th></th>}</tr>
+              <tr><th>Team</th><th>Allocation</th><th>Spent</th><th>Remaining</th><th>Share</th>{canEdit && <th></th>}</tr>
             </thead>
             <tbody>
               {allocationRows.map((team) => (
@@ -2095,7 +2102,6 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
                     <strong>{team.code}</strong>
                     <span>{team.name}</span>
                   </td>
-                  <td>{team.domain}</td>
                   <td>
                     <input
                       type="number"
@@ -2108,7 +2114,7 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
                   </td>
                   <td>{money(team.actualSpend)}</td>
                   <td className={team.remaining < 0 ? "over-budget" : ""}>{money(team.remaining)}</td>
-                  <td>{allocationTotal ? `${Math.round((team.allocation / allocationTotal) * 100)}%` : "0%"}</td>
+                  <td>{plannedBudget ? `${Math.round((team.allocation / plannedBudget) * 100)}%` : "0%"}</td>
                   {canEdit && (
                     <td>
                       <button onClick={() => saveAllocation(team.id)} disabled={savingTeamId === team.id}>
@@ -2121,7 +2127,6 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
               {selectedTeam === "master" && (
                 <tr className="general-allocation-row">
                   <td><strong>General</strong><span>Shared project spending</span></td>
-                  <td>Unallocated Funds</td>
                   <td>{money(unallocatedBudget)}</td>
                   <td>{money(unallocatedActualSpend)}</td>
                   <td className={unallocatedRemaining < 0 ? "over-budget" : ""}>{money(unallocatedRemaining)}</td>
@@ -2131,7 +2136,7 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
               )}
               {allocationRows.length === 0 && (
                 <tr>
-                  <td colSpan={canEdit ? "7" : "6"}>No team allocation entries yet.</td>
+                  <td colSpan={canEdit ? "6" : "5"}>No team allocation entries yet.</td>
                 </tr>
               )}
             </tbody>
@@ -2633,10 +2638,8 @@ function Sponsors({ projectId, selectedTeam, token, teams, sponsors, invoices, a
   return (
     <section className="stack">
       <div className="metrics-grid">
-        {selectedTeam === "master" && <Metric label="Money In" value={money(dashboard?.sponsor_total)} detail="Sponsor funding in this scope" />}
+        {selectedTeam === "master" && <Metric label="Money In" value={money(dashboard?.sponsor_total)} detail="Funding" />}
         <Metric label="In-kind" value={money(inKindTotal)} detail="Sponsored materials and services" />
-        <Metric label="Planned Budget" value={money(dashboard?.planned_budget)} detail="Used by dashboard and budget remaining" />
-        <Metric label="Remaining" value={money(dashboard?.remaining_budget)} detail="Cash planned minus actual" tone={dashboard?.remaining_budget < 0 ? "danger" : ""} />
       </div>
 
       {canEdit && <form className="sponsor-form" onSubmit={addSponsor}>
