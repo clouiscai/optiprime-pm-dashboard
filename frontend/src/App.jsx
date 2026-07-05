@@ -172,6 +172,7 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [timelineStart, setTimelineStart] = useState("");
   const [timelineEnd, setTimelineEnd] = useState("");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const currentProject = projects.find((project) => project.id === Number(projectId));
   const scopedTeamId = selectedTeam === "master" ? null : Number(selectedTeam);
@@ -328,6 +329,7 @@ export default function App() {
   }
 
   function logout() {
+    setMobileNavOpen(false);
     setToken("");
     setRole("admin");
     setAuthorized(false);
@@ -355,9 +357,22 @@ export default function App() {
   }
 
   function closeProject() {
+    setMobileNavOpen(false);
     setProjectId(null);
     setSelectedTeam("master");
     setActiveTab("Dashboard");
+  }
+
+  function changeTeam(nextTeam) {
+    setSelectedTeam(nextTeam);
+    setMobileNavOpen(false);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
+  function navigateToTab(tab) {
+    setActiveTab(tab);
+    setMobileNavOpen(false);
+    window.scrollTo({ top: 0, behavior: "auto" });
   }
 
   if (!authorized) {
@@ -398,39 +413,58 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <img className="brand-logo" src={optiPrimeLogo} alt="OptiPrime" />
-          <div>
-            <strong>OptiPrime</strong>
-            <span>{canEdit ? "Admin" : "View only"}</span>
+      <aside className={`sidebar${mobileNavOpen ? " mobile-nav-open" : ""}`}>
+        <div className="sidebar-bar">
+          <div className="brand">
+            <img className="brand-logo" src={optiPrimeLogo} alt="OptiPrime" />
+            <div>
+              <strong>OptiPrime</strong>
+              <span>{canEdit ? "Admin" : "View only"}</span>
+            </div>
           </div>
+          <span className="mobile-context">{selectedTeam === "master" ? "Master" : teamCode(data.teams, selectedTeam)} · {activeTab}</span>
+          <button
+            type="button"
+            className="mobile-menu-toggle"
+            aria-expanded={mobileNavOpen}
+            aria-controls="mobile-navigation"
+            aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"}
+            title={mobileNavOpen ? "Close navigation" : "Open navigation"}
+            onClick={() => setMobileNavOpen((open) => !open)}
+          >
+            <span />
+            <span />
+            <span />
+          </button>
         </div>
-        <button className="project-exit-button" onClick={closeProject}>Projects</button>
-        <div className="team-switcher">
-          <button className={selectedTeam === "master" ? "active" : ""} onClick={() => setSelectedTeam("master")}>Master</button>
-          {data.teams.map((team) => (
-            <button className={String(selectedTeam) === String(team.id) ? "active" : ""} key={team.id} onClick={() => setSelectedTeam(team.id)}>
-              {team.code}
-            </button>
-          ))}
+        <div className="mobile-nav-panel" id="mobile-navigation">
+          <button className="project-exit-button" onClick={closeProject}>Projects</button>
+          <div className="team-switcher">
+            <button className={selectedTeam === "master" ? "active" : ""} onClick={() => changeTeam("master")}>Master</button>
+            {data.teams.map((team) => (
+              <button className={String(selectedTeam) === String(team.id) ? "active" : ""} key={team.id} onClick={() => changeTeam(team.id)}>
+                {team.code}
+              </button>
+            ))}
+          </div>
+          <nav className="sidebar-nav">
+            {navigationGroups.map((group) => (
+              <section className="sidebar-nav-group" key={group.label || "primary"}>
+                {group.label && <h2>{group.label}</h2>}
+                <div>
+                  {group.tabs.map((tab) => (
+                    <button className={activeTab === tab ? "active" : ""} key={tab} onClick={() => navigateToTab(tab)}>
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </nav>
+          <button className="signout-button" onClick={logout}>Log Out</button>
         </div>
-        <nav className="sidebar-nav">
-          {navigationGroups.map((group) => (
-            <section className="sidebar-nav-group" key={group.label || "primary"}>
-              {group.label && <h2>{group.label}</h2>}
-              <div>
-                {group.tabs.map((tab) => (
-                  <button className={activeTab === tab ? "active" : ""} key={tab} onClick={() => setActiveTab(tab)}>
-                    {tab}
-                  </button>
-                ))}
-              </div>
-            </section>
-          ))}
-        </nav>
-        <button className="signout-button" onClick={logout}>Log Out</button>
       </aside>
+      {mobileNavOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
 
       <main className="workspace">
         <header className="topbar">
@@ -641,6 +675,7 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
   const defaultTeam = isMaster ? null : teamId || teams[0]?.id || null;
   const [draft, setDraft] = useState(emptyTask(projectId, defaultTeam));
   const [filter, setFilter] = useState("all");
+  const [showMobileComposer, setShowMobileComposer] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [taskEdit, setTaskEdit] = useState({ title: "", description: "" });
   const wbsTasks = useMemo(() => sortWbs(tasks), [tasks]);
@@ -658,6 +693,7 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
     if (!draft.title.trim()) return;
     await apiFetch("/tasks", token, { method: "POST", body: JSON.stringify({ ...draft, project_id: projectId, team_id: draft.team_id ? Number(draft.team_id) : null }) });
     setDraft(emptyTask(projectId, defaultTeam));
+    setShowMobileComposer(false);
     await onRefresh("tasks");
   }
 
@@ -674,7 +710,8 @@ function TasksView({ projectId, teamId, selectedTeam, token, tasks, teams, users
 
   return (
     <section className="stack">
-      {canEdit && <form className="task-composer task-composer-wide" onSubmit={createTask}>
+      {canEdit && <button type="button" className="mobile-composer-toggle" onClick={() => setShowMobileComposer((visible) => !visible)}>{showMobileComposer ? "Close Task Form" : "Add Task"}</button>}
+      {canEdit && <form className={`task-composer task-composer-wide${showMobileComposer ? " mobile-expanded" : ""}`} onSubmit={createTask}>
         <label className="compact-field">
           <span>Task</span>
           <input placeholder="New task" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
@@ -1314,13 +1351,13 @@ function ProjectPortal({ projects, token, canEdit, onProjectsChange, onReloadPro
                 const edit = projectEdits[project.id] || project;
                 return (
                   <Fragment key={project.id}>
-                  <tr>
-                    <td>{editing ? <input value={edit.name || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, name: event.target.value } })} /> : project.name}</td>
-                    <td>{editing ? <input value={edit.description || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, description: event.target.value } })} /> : project.description}</td>
-                    <td>{editing ? <input type="date" value={edit.start_date || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, start_date: event.target.value } })} /> : shortDate(project.start_date)}</td>
-                    <td>{editing ? <input type="date" value={edit.end_date || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, end_date: event.target.value } })} /> : shortDate(project.end_date)}</td>
-                    <td>{editing ? <input type="number" min="0" step="0.01" value={edit.budget || 0} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, budget: event.target.value } })} /> : money(project.budget)}</td>
-                    <td className="row-actions">
+                  <tr className="project-row">
+                    <td data-label="Name">{editing ? <input value={edit.name || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, name: event.target.value } })} /> : project.name}</td>
+                    <td data-label="Description">{editing ? <input value={edit.description || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, description: event.target.value } })} /> : project.description}</td>
+                    <td data-label="Start">{editing ? <input type="date" value={edit.start_date || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, start_date: event.target.value } })} /> : shortDate(project.start_date)}</td>
+                    <td data-label="End">{editing ? <input type="date" value={edit.end_date || ""} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, end_date: event.target.value } })} /> : shortDate(project.end_date)}</td>
+                    <td data-label="Budget">{editing ? <input type="number" min="0" step="0.01" value={edit.budget || 0} onChange={(event) => setProjectEdits({ ...projectEdits, [project.id]: { ...edit, budget: event.target.value } })} /> : money(project.budget)}</td>
+                    <td className="row-actions project-row-actions">
                       <button type="button" onClick={() => onOpenProject(project.id)}>Open</button>
                       {editing && canEdit && <button type="button" onClick={() => saveProject(project)}>Save</button>}
                       {editing && canEdit && <button type="button" className="danger-button" onClick={() => {
@@ -1489,7 +1526,7 @@ function Bom({ projectId, teamId, selectedTeam, token, teams, dashboard, bom, ca
             <button>Add</button>
           </form>}
           <div className="table-wrap bom-table-wrap">
-            <table className="bom-table">
+            <table className={`bom-table ${bomExpanded ? "expanded" : "compact"}`}>
               <thead>
                 <tr>{isMaster && <th className="bom-team-col">Team</th>}<th className="bom-category-col">Category</th><th className="bom-product-number-col">Product Number</th><th className="bom-product-col">Product</th><th className="bom-vendor-col">Vendor</th><th className="bom-item-col">Description</th><th className="bom-qty-col">Qty</th><th className="bom-cost-col">Unit Cost (SGD)</th><th className="bom-total-col">Total (SGD)</th><th className="bom-sponsor-col">Sponsor</th>{bomExpanded && <th className="bom-version-col">Version</th>}{bomExpanded && <th className="bom-actions-col"></th>}</tr>
               </thead>
@@ -2003,22 +2040,22 @@ function InvoicePurchaseRow({ purchase, canEdit, onPatch, onDelete }) {
     <div className={`invoice-purchase-row${editing ? " editing" : ""}`}>
       {editing ? (
         <>
-          <input aria-label="Type" list="invoice-purchase-categories" value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} />
-          <input aria-label="What it is" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
-          <input aria-label="Quantity" type="number" min="0.000001" step="any" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} />
-          <input aria-label="Unit price" type="number" step="0.01" value={draft.original_amount} onChange={(event) => setDraft({ ...draft, original_amount: event.target.value })} />
-          <strong>{currencyMoney(Number(draft.quantity || 0) * Number(draft.original_amount || 0), purchase.currency)}</strong>
-          <strong>{money(convertedSgd(Number(draft.quantity || 0) * Number(draft.original_amount || 0), purchase.exchange_rate_to_sgd))}</strong>
+          <label className="mobile-line-field"><span>Type</span><input aria-label="Type" list="invoice-purchase-categories" value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} /></label>
+          <label className="mobile-line-field invoice-line-description"><span>What It Is</span><input aria-label="What it is" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
+          <label className="mobile-line-field"><span>Qty</span><input aria-label="Quantity" type="number" min="0.000001" step="any" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} /></label>
+          <label className="mobile-line-field"><span>Unit Price</span><input aria-label="Unit price" type="number" step="0.01" value={draft.original_amount} onChange={(event) => setDraft({ ...draft, original_amount: event.target.value })} /></label>
+          <strong data-label="Line Total">{currencyMoney(Number(draft.quantity || 0) * Number(draft.original_amount || 0), purchase.currency)}</strong>
+          <strong data-label="SGD Total">{money(convertedSgd(Number(draft.quantity || 0) * Number(draft.original_amount || 0), purchase.exchange_rate_to_sgd))}</strong>
           <div className="row-actions"><button type="button" onClick={save}>Save</button><button type="button" onClick={() => setEditing(false)}>Cancel</button></div>
         </>
       ) : (
         <>
-          <strong>{purchase.category}</strong>
-          <span className={purchase.notes ? "" : "muted-placeholder"}>{purchase.notes || "No description"}</span>
-          <span>{purchase.quantity || 1}</span>
-          <span>{currencyMoney(purchase.original_amount, purchase.currency)}</span>
-          <strong>{currencyMoney((purchase.quantity || 1) * purchase.original_amount, purchase.currency)}</strong>
-          <strong>{money(purchase.amount)}</strong>
+          <strong data-label="Type">{purchase.category}</strong>
+          <span data-label="What It Is" className={`invoice-line-description${purchase.notes ? "" : " muted-placeholder"}`}>{purchase.notes || "No description"}</span>
+          <span data-label="Qty">{purchase.quantity || 1}</span>
+          <span data-label="Unit Price">{currencyMoney(purchase.original_amount, purchase.currency)}</span>
+          <strong data-label="Line Total">{currencyMoney((purchase.quantity || 1) * purchase.original_amount, purchase.currency)}</strong>
+          <strong data-label="SGD Total">{money(purchase.amount)}</strong>
           {canEdit ? <div className="row-actions"><button type="button" onClick={() => setEditing(true)}>Edit</button><button type="button" className="danger-button" onClick={() => onDelete(purchase)}>Delete</button></div> : <span />}
         </>
       )}
@@ -2208,7 +2245,7 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
     <>
       <tr className={`bom-item-row${item.finalized ? " bom-finalized-row" : ""}`}>
         {isMaster && (
-          <td>
+          <td data-label="Team">
             {expanded ? (
               <select value={edit.team_id || ""} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, team_id: event.target.value ? Number(event.target.value) : null })}>
                 <option value="">General</option>
@@ -2217,7 +2254,7 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
             ) : teamCode(teams, item.team_id)}
           </td>
         )}
-        <td className="bom-category-col">
+        <td className="bom-category-col" data-label="Category">
           {expanded ? (
             <>
               <datalist id={categoryOptionsId}>
@@ -2227,15 +2264,15 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
             </>
           ) : item.category || "Uncategorized"}
         </td>
-        <td className="bom-product-number-col">{expanded ? <input value={edit.product_number} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, product_number: event.target.value })} /> : item.product_number || "-"}</td>
-        <td className="bom-product-col">{expanded ? <input value={edit.product} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, product: event.target.value })} /> : item.product || "-"}</td>
-        <td className="bom-vendor-col">{expanded ? <input value={edit.vendor} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, vendor: event.target.value })} /> : item.vendor || "-"}</td>
-        <td className="bom-item-col">{expanded ? <input value={edit.name} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, name: event.target.value })} /> : item.name}</td>
-        <td className="bom-qty-col">{expanded ? <input type="number" step="1" value={edit.quantity} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, quantity: event.target.value })} /> : item.quantity}</td>
-        <td className="bom-cost-col">{expanded ? <input type="number" step="0.01" value={edit.unit_cost} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, unit_cost: event.target.value })} /> : money(item.unit_cost)}</td>
-        <td className="bom-total-col">{money(item.total_cost)}</td>
-        <td className="bom-sponsor-col">{expanded ? <input placeholder="Sponsor" value={edit.sponsored_by} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, sponsored_by: event.target.value })} /> : item.sponsored_by || "-"}</td>
-        {expanded && <td className="bom-version-col"><span className={item.finalized ? "version-finalized" : ""}>{item.finalized ? "V" : "v"}{item.version}</span></td>}
+        <td className="bom-product-number-col" data-label="Product Number">{expanded ? <input value={edit.product_number} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, product_number: event.target.value })} /> : item.product_number || "-"}</td>
+        <td className="bom-product-col" data-label="Product">{expanded ? <input value={edit.product} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, product: event.target.value })} /> : item.product || "-"}</td>
+        <td className="bom-vendor-col" data-label="Vendor">{expanded ? <input value={edit.vendor} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, vendor: event.target.value })} /> : item.vendor || "-"}</td>
+        <td className="bom-item-col" data-label="Description">{expanded ? <input value={edit.name} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, name: event.target.value })} /> : item.name}</td>
+        <td className="bom-qty-col" data-label="Qty">{expanded ? <input type="number" step="1" value={edit.quantity} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, quantity: event.target.value })} /> : item.quantity}</td>
+        <td className="bom-cost-col" data-label="Unit Cost">{expanded ? <input type="number" step="0.01" value={edit.unit_cost} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, unit_cost: event.target.value })} /> : money(item.unit_cost)}</td>
+        <td className="bom-total-col" data-label="Total">{money(item.total_cost)}</td>
+        <td className="bom-sponsor-col" data-label="Sponsor">{expanded ? <input placeholder="Sponsor" value={edit.sponsored_by} disabled={!rowCanEdit} onChange={(event) => setEdit({ ...edit, sponsored_by: event.target.value })} /> : item.sponsored_by || "-"}</td>
+        {expanded && <td className="bom-version-col" data-label="Version"><span className={item.finalized ? "version-finalized" : ""}>{item.finalized ? "V" : "v"}{item.version}</span></td>}
         {expanded && (
           <td className="row-actions bom-actions-col">
             {rowCanEdit && <button onClick={save}>Save</button>}
