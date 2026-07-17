@@ -2978,6 +2978,62 @@ progress {
     grid-column: 1 / -1;
   }
 
+  .invoice-form {
+    align-items: stretch;
+    gap: 12px;
+    width: 100%;
+    min-width: 0;
+    padding: 12px 0 4px;
+    border-top: 1px solid var(--op-line);
+  }
+
+  .invoice-form .compact-field,
+  .invoice-form .toggle-field,
+  .invoice-form input,
+  .invoice-form select,
+  .invoice-form button {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .invoice-form .compact-field,
+  .invoice-form .invoice-upload-button {
+    grid-column: 1 / -1;
+  }
+
+  .invoice-form input,
+  .invoice-form select,
+  .invoice-form .toggle-field,
+  .invoice-form .invoice-upload-button {
+    min-height: 42px;
+  }
+
+  .invoice-form input[type="file"] {
+    overflow: hidden;
+    padding: 5px 6px;
+    font-size: 12px;
+  }
+
+  .invoice-form input[type="file"]::file-selector-button {
+    max-width: calc(100% - 8px);
+    min-height: 30px;
+    margin-right: 8px;
+    overflow: hidden;
+    border: 1px solid var(--op-line);
+    border-radius: 5px;
+    background: #ffffff;
+    color: var(--op-ink);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .invoice-form .toggle-field input {
+    width: 18px;
+    min-width: 18px;
+    min-height: 18px;
+  }
+
   .panel-block,
   .section-card,
   .bom-panel,
