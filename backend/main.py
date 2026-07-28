@@ -71,7 +71,8 @@ def startup():
         return
     try:
         init_db()
-        seed()
+        if not is_production or os.getenv("OPTIPRIME_RUN_STARTUP_SEED", "").lower() in {"1", "true", "yes"}:
+            seed()
     except Exception:
         logger.exception("Database startup failed; serving non-database routes while configuration is fixed.")
 

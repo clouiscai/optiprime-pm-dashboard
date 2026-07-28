@@ -100,6 +100,8 @@ This repository is configured for Vercel hosting through `vercel.json`. Vercel s
 
 Important: use Supabase Postgres or another hosted Postgres database for production. Do not use SQLite on Vercel because serverless file storage is temporary. Invoice PDFs are stored in the database with their invoice records and are limited to 10 MB each.
 
+Production startup runs schema maintenance only when `OPTIPRIME_SKIP_STARTUP_DB` is disabled. Demo seed data is never applied in production unless `OPTIPRIME_RUN_STARTUP_SEED=true` is explicitly configured.
+
 ### Finance Data Model
 
 Finance records follow this hierarchy:
@@ -108,7 +110,9 @@ Finance records follow this hierarchy:
 2. Invoice number and PDF
 3. Purchase lines under that invoice, including materials, shipping, tax, fees, and services
 
-Invoice headers store the assigned team, vendor, invoice number, date, base currency, SGD exchange rate, sponsorship status, sponsor name, description, and PDF. Each purchase line inherits the invoice's team and records what the charge is, its type (such as material, shipping, tax, fee, discount, or service), quantity, and unit price in the invoice base currency. Line totals are quantity multiplied by unit price and then converted to SGD. Discounts can be entered as negative unit prices. Team invoices reduce that team's allocation; General invoices reduce the project's unallocated funds. Actual spending is calculated only from non-sponsored invoice purchase lines, not from the invoice header or legacy standalone expenses, so invoice totals are never counted twice. An invoice PDF can be replaced or removed without deleting the invoice and its purchase lines.
+Invoice headers store the vendor, invoice number, date, base currency, SGD exchange rate, sponsorship status, sponsor name, description, and PDF. Spending is assigned on each purchase line rather than on the invoice header. A normal line can be assigned to one team, shared equally by several selected teams, or left as General to use unallocated project funds. Tax and discount lines reference one or more item lines; their value is distributed proportionally by the referenced items' SGD totals and inherits those items' team allocations. This keeps shared shipping, tax, and discounts attributable without duplicating invoice totals.
+
+Each purchase line records what the charge is, its type (such as item, shipping, tax, fee, discount, or service), quantity, and unit price in the invoice base currency. Line totals are quantity multiplied by unit price and then converted to SGD. Discounts can be entered as negative unit prices. Actual spending is calculated only from non-sponsored invoice purchase lines, not from the invoice header or legacy standalone expenses. An invoice PDF can be replaced or removed without deleting the invoice and its purchase lines.
 
 ### 1. Create Supabase Database
 

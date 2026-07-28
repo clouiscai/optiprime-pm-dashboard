@@ -149,6 +149,70 @@ class BudgetLog(Base):
         back_populates="purchases",
         foreign_keys=[invoice_id],
     )
+    team_allocations: Mapped[list["BudgetLogTeam"]] = relationship(
+        back_populates="budget_log",
+        cascade="all, delete-orphan",
+        order_by="BudgetLogTeam.team_id",
+    )
+    reference_links: Mapped[list["BudgetLogReference"]] = relationship(
+        back_populates="source_log",
+        cascade="all, delete-orphan",
+        foreign_keys="BudgetLogReference.source_log_id",
+        order_by="BudgetLogReference.target_log_id",
+    )
+    referenced_by_links: Mapped[list["BudgetLogReference"]] = relationship(
+        back_populates="target_log",
+        foreign_keys="BudgetLogReference.target_log_id",
+        passive_deletes=True,
+    )
+
+    @property
+    def team_ids(self) -> list[int]:
+        return [allocation.team_id for allocation in self.team_allocations]
+
+    @property
+    def referenced_item_ids(self) -> list[int]:
+        return [reference.target_log_id for reference in self.reference_links]
+
+
+class BudgetLogTeam(Base):
+    __tablename__ = "budget_log_teams"
+
+    budget_log_id: Mapped[int] = mapped_column(
+        ForeignKey("budget_logs.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+
+    budget_log: Mapped[BudgetLog] = relationship(back_populates="team_allocations")
+    team: Mapped[Team] = relationship()
+
+
+class BudgetLogReference(Base):
+    __tablename__ = "budget_log_references"
+
+    source_log_id: Mapped[int] = mapped_column(
+        ForeignKey("budget_logs.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    target_log_id: Mapped[int] = mapped_column(
+        ForeignKey("budget_logs.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+
+    source_log: Mapped[BudgetLog] = relationship(
+        back_populates="reference_links",
+        foreign_keys=[source_log_id],
+    )
+    target_log: Mapped[BudgetLog] = relationship(
+        back_populates="referenced_by_links",
+        foreign_keys=[target_log_id],
+    )
 
 
 class Invoice(Base):

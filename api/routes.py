@@ -17,7 +17,7 @@ from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, joinedload
 
 from database.session import get_db
-from models.entities import Asset, Blocker, BOMItem, BOMVersion, BudgetLog, Invoice, Project, Sponsor, Task, TaskAuditLog, Team, User
+from models.entities import Asset, Blocker, BOMItem, BOMVersion, BudgetLog, BudgetLogReference, BudgetLogTeam, Invoice, Project, Sponsor, Task, TaskAuditLog, Team, User
 from models.schemas import (
     AssetCreate,
     AssetRead,
@@ -59,6 +59,7 @@ from models.schemas import (
 )
 from services.auth import account_for_credentials, expected_username, require_token, require_websocket_token, require_write_token, role_for_token, session_for_token
 from services.calculations import project_dashboard, task_with_open_blockers
+from services.finance import is_adjustment_category, project_purchase_allocations, purchase_allocation_weights
 from services.realtime import manager
 
 
@@ -113,6 +114,60 @@ def validate_project_team(db: Session, project_id: int, team_id: int | None) -> 
     if not team or team.project_id != project_id:
         raise HTTPException(400, "Team must belong to the invoice project")
     return team.id
+
+
+def validate_project_team_ids(db: Session, project_id: int, team_ids: list[int]) -> list[int]:
+    normalized = sorted(set(team_ids))
+    if not normalized:
+        return []
+    valid_ids = {
+        team_id
+        for (team_id,) in db.query(Team.id).filter(Team.project_id == project_id, Team.id.in_(normalized)).all()
+    }
+    if valid_ids != set(normalized):
+        raise HTTPException(400, "Every selected team must belong to the invoice project")
+    return normalized
+
+
+def configure_purchase_scope(
+    db: Session,
+    purchase: BudgetLog,
+    team_ids: list[int],
+    referenced_item_ids: list[int],
+) -> None:
+    validated_team_ids = validate_project_team_ids(db, purchase.project_id, team_ids)
+    normalized_references = sorted(set(referenced_item_ids))
+    adjustment = is_adjustment_category(purchase.category)
+
+    if adjustment and not normalized_references:
+        raise HTTPException(400, "Tax and discount lines must reference at least one invoice item")
+    if adjustment and validated_team_ids:
+        raise HTTPException(400, "Tax and discount team allocation is inherited from the referenced items")
+    if not adjustment and normalized_references:
+        raise HTTPException(400, "Only tax and discount lines can reference invoice items")
+
+    if normalized_references:
+        targets = (
+            db.query(BudgetLog)
+            .filter(
+                BudgetLog.id.in_(normalized_references),
+                BudgetLog.invoice_id == purchase.invoice_id,
+                BudgetLog.project_id == purchase.project_id,
+                BudgetLog.id != purchase.id,
+            )
+            .all()
+        )
+        if len(targets) != len(normalized_references):
+            raise HTTPException(400, "Referenced items must belong to the same invoice")
+        if any(is_adjustment_category(target.category) for target in targets):
+            raise HTTPException(400, "Tax and discount lines must reference purchase items, not other adjustments")
+
+    purchase.team_allocations = [BudgetLogTeam(team_id=team_id) for team_id in validated_team_ids]
+    purchase.reference_links = [
+        BudgetLogReference(target_log_id=target_id)
+        for target_id in normalized_references
+    ]
+    purchase.team_id = validated_team_ids[0] if len(validated_team_ids) == 1 else None
 
 
 def normalized_team_id(team_id: int | None = Query(default=None)) -> int | None:
@@ -774,10 +829,18 @@ def export_bom(project_id: int, _: Protected, team_id: int | None = None, db: Se
 @router.get("/projects/{project_id}/budget", response_model=list[BudgetLogRead])
 def list_budget_logs(project_id: int, _: Protected, team_id: int | None = None, db: Session = Depends(get_db)):
     get_project_or_404(db, project_id)
-    query = db.query(BudgetLog).filter(BudgetLog.project_id == project_id)
-    if team_id:
-        query = query.filter(BudgetLog.team_id == team_id)
-    return query.order_by(BudgetLog.date.desc()).all()
+    logs = (
+        db.query(BudgetLog)
+        .options(joinedload(BudgetLog.team_allocations), joinedload(BudgetLog.reference_links))
+        .filter(BudgetLog.project_id == project_id)
+        .order_by(BudgetLog.date.desc())
+        .all()
+    )
+    if not team_id:
+        return logs
+    validate_project_team(db, project_id, team_id)
+    allocations = project_purchase_allocations(logs)
+    return [log for log in logs if team_id in allocations.get(log.id, {})]
 
 
 @router.post("/budget", response_model=BudgetLogRead)
@@ -802,6 +865,8 @@ async def update_budget_log(log_id: int, payload: BudgetLogUpdate, _: Writable, 
     if not log:
         raise HTTPException(404, "Budget log not found")
     updates = payload.model_dump(exclude_unset=True)
+    requested_team_ids = updates.pop("team_ids", None)
+    requested_references = updates.pop("referenced_item_ids", None)
     linked_invoice = db.get(Invoice, log.invoice_id) if log.invoice_id else None
     currency = normalize_currency(linked_invoice.currency if linked_invoice else updates.get("currency", log.currency))
     exchange_rate = linked_invoice.exchange_rate_to_sgd if linked_invoice else updates.get("exchange_rate_to_sgd", log.exchange_rate_to_sgd)
@@ -816,10 +881,14 @@ async def update_budget_log(log_id: int, payload: BudgetLogUpdate, _: Writable, 
     updates["amount"] = amount_in_sgd(original_amount * quantity, exchange_rate)
     if linked_invoice:
         updates["date"] = linked_invoice.invoice_date or log.date
-        updates["team_id"] = linked_invoice.team_id
         updates["sponsored_by"] = linked_invoice.sponsored_by
     for field, value in updates.items():
         setattr(log, field, value)
+    if linked_invoice:
+        adjustment = is_adjustment_category(log.category)
+        team_ids = requested_team_ids if requested_team_ids is not None else ([] if adjustment else log.team_ids)
+        references = requested_references if requested_references is not None else (log.referenced_item_ids if adjustment else [])
+        configure_purchase_scope(db, log, team_ids, references)
     db.flush()
     if linked_invoice:
         refresh_invoice_totals(db, linked_invoice)
@@ -834,6 +903,8 @@ async def delete_budget_log(log_id: int, _: Writable, db: Session = Depends(get_
     log = db.get(BudgetLog, log_id)
     if not log:
         raise HTTPException(404, "Budget log not found")
+    if db.query(BudgetLogReference).filter(BudgetLogReference.target_log_id == log_id).first():
+        raise HTTPException(409, "This item is used by a tax or discount line. Remove that reference first.")
     project_id = log.project_id
     invoice_id = log.invoice_id
     linked_invoice = db.get(Invoice, invoice_id) if invoice_id else None
@@ -855,13 +926,27 @@ def list_invoices(project_id: int, _: Protected, team_id: int | None = None, db:
     ensure_invoice_file_data_column(db)
     query = (
         db.query(Invoice)
-        .options(joinedload(Invoice.purchases))
+        .options(
+            joinedload(Invoice.purchases).joinedload(BudgetLog.team_allocations),
+            joinedload(Invoice.purchases).joinedload(BudgetLog.reference_links),
+        )
         .filter(Invoice.project_id == project_id)
     )
+    invoices = query.order_by(Invoice.vendor.asc(), Invoice.invoice_date.desc(), Invoice.id.desc()).all()
     if team_id is not None:
         validate_project_team(db, project_id, team_id)
-        query = query.filter(Invoice.team_id == team_id)
-    return query.order_by(Invoice.vendor.asc(), Invoice.invoice_date.desc(), Invoice.id.desc()).all()
+        invoices = [
+            invoice
+            for invoice in invoices
+            if (
+                any(
+                    team_id in purchase_allocation_weights(purchase, {item.id: item for item in invoice.purchases})
+                    for purchase in invoice.purchases
+                )
+                or (not invoice.purchases and invoice.team_id == team_id)
+            )
+        ]
+    return invoices
 
 
 @router.post("/invoices", response_model=InvoiceRead)
@@ -935,6 +1020,7 @@ async def upload_invoice(
         )
         db.add(log)
         db.flush()
+        configure_purchase_scope(db, log, [validated_team_id] if validated_team_id else [], [])
         invoice.budget_log_id = log.id
         refresh_invoice_totals(db, invoice)
     db.commit()
@@ -1015,7 +1101,6 @@ async def update_invoice(invoice_id: int, payload: InvoiceUpdate, _: Writable, d
         purchase.amount = amount_in_sgd(purchase.original_amount * purchase.quantity, invoice.exchange_rate_to_sgd)
         if invoice.invoice_date:
             purchase.date = invoice.invoice_date
-        purchase.team_id = invoice.team_id
         purchase.sponsored_by = invoice.sponsored_by
     db.flush()
     refresh_invoice_totals(db, invoice)
@@ -1055,6 +1140,7 @@ async def create_invoice_purchase(
     )
     db.add(purchase)
     db.flush()
+    configure_purchase_scope(db, purchase, payload.team_ids, payload.referenced_item_ids)
     refresh_invoice_totals(db, invoice)
     db.commit()
     db.refresh(purchase)

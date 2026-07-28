@@ -96,6 +96,59 @@ function teamName(teams, id) {
   return id ? teams.find((team) => team.id === id)?.code || "" : "General";
 }
 
+function isInvoiceAdjustment(category) {
+  const words = new Set((category || "").trim().toLocaleLowerCase().replaceAll("-", " ").replaceAll("_", " ").split(/\s+/));
+  return ["tax", "taxes", "gst", "vat", "discount", "discounts"].some((word) => words.has(word));
+}
+
+function invoiceTeamIds(invoice) {
+  const directTeamIds = (invoice.purchases || []).flatMap((purchase) => purchase.team_ids || []);
+  if ((invoice.purchases || []).length) return [...new Set(directTeamIds)].sort((a, b) => a - b);
+  return invoice.team_id ? [invoice.team_id] : [];
+}
+
+function teamAllocationLabel(teams, teamIds) {
+  if (!teamIds?.length) return "General";
+  return teamIds.map((teamId) => teamCode(teams, teamId)).join(" + ");
+}
+
+function directPurchaseWeights(purchase) {
+  const teamIds = [...new Set((purchase.team_ids || []).map(Number))].sort((a, b) => a - b);
+  if (!teamIds.length) return new Map([[null, 1]]);
+  return new Map(teamIds.map((teamId) => [teamId, 1 / teamIds.length]));
+}
+
+function purchaseBudgetBreakdown(purchase, purchases) {
+  const purchasesById = new Map(purchases.map((item) => [item.id, item]));
+  const targets = (purchase.referenced_item_ids || []).map((itemId) => purchasesById.get(itemId)).filter(Boolean);
+  let weights = directPurchaseWeights(purchase);
+
+  if (targets.length) {
+    const targetAmounts = targets.map((target) => Math.abs(Number(target.amount || 0)));
+    const targetTotal = targetAmounts.reduce((total, amount) => total + amount, 0);
+    const normalizedTotal = targetTotal || targets.length;
+    weights = new Map();
+    targets.forEach((target, index) => {
+      const targetWeight = (targetTotal ? targetAmounts[index] : 1) / normalizedTotal;
+      directPurchaseWeights(target).forEach((teamWeight, teamId) => {
+        weights.set(teamId, (weights.get(teamId) || 0) + (targetWeight * teamWeight));
+      });
+    });
+  }
+
+  const totalCents = Math.round((Math.abs(Number(purchase.amount || 0)) + Number.EPSILON) * 100);
+  const sign = Number(purchase.amount || 0) < 0 ? -1 : 1;
+  const totalWeight = [...weights.values()].reduce((total, weight) => total + weight, 0) || 1;
+  const rawShares = [...weights.entries()].map(([teamId, weight]) => ({ teamId, raw: totalCents * weight / totalWeight }));
+  const shares = rawShares.map(({ teamId, raw }) => ({ teamId, cents: Math.floor(raw), fraction: raw - Math.floor(raw) }));
+  let remaining = totalCents - shares.reduce((total, share) => total + share.cents, 0);
+  shares.sort((a, b) => b.fraction - a.fraction || (a.teamId ?? -1) - (b.teamId ?? -1));
+  for (let index = 0; index < remaining; index += 1) shares[index % shares.length].cents += 1;
+  return shares
+    .sort((a, b) => (a.teamId ?? -1) - (b.teamId ?? -1))
+    .map((share) => ({ teamId: share.teamId, amount: sign * share.cents / 100 }));
+}
+
 function teamColor(teams, id) {
   const code = teamCode(teams, id);
   return teamColors[code] || teamColors.General;
@@ -1582,13 +1635,14 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
         invoice.amount_sgd,
         invoice.sponsored_by,
         invoice.original_filename,
-        teamCode(teams, invoice.team_id),
+        teamAllocationLabel(teams, invoiceTeamIds(invoice)),
         ...(invoice.purchases || []).flatMap((purchase) => [
           purchase.category,
           purchase.notes,
           purchase.quantity,
           purchase.original_amount,
           purchase.amount,
+          teamAllocationLabel(teams, purchase.team_ids),
         ]),
       ].filter((value) => value !== null && value !== undefined).join(" ").toLocaleLowerCase();
       return terms.every((term) => searchable.includes(term));
@@ -1761,13 +1815,6 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
             </div>
             {canEdit && showInvoiceComposer && (
               <form className="invoice-form" onSubmit={uploadInvoice}>
-                <label className="compact-field invoice-team-field">
-                  <span>Team</span>
-                  <select value={invoiceDraft.team_id || ""} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, team_id: event.target.value ? Number(event.target.value) : "" })}>
-                    <option value="">General</option>
-                    {teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}
-                  </select>
-                </label>
                 <label className="compact-field invoice-vendor-field">
                   <span>Vendor</span>
                   <input placeholder="Vendor name" value={invoiceDraft.vendor} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, vendor: event.target.value })} />
@@ -1823,6 +1870,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
                         key={invoice.id}
                         invoice={invoice}
                         teams={teams}
+                        defaultTeamIds={selectedTeam === "master" ? [] : [Number(selectedTeam)]}
                         canEdit={canEdit}
                         onView={viewInvoice}
                         onDelete={deleteInvoice}
@@ -1860,13 +1908,78 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
   );
 }
 
-function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAddPurchase, onPatchPurchase, onDeletePurchase, onReplacePdf, onDeletePdf }) {
-  const emptyPurchase = { category: "Item", quantity: 1, original_amount: "", notes: "" };
-  const [purchaseDraft, setPurchaseDraft] = useState(emptyPurchase);
+function TeamAllocationPicker({ teams, value, onChange }) {
+  const selected = new Set((value || []).map(Number));
+
+  function toggleTeam(teamId) {
+    const next = new Set(selected);
+    if (next.has(teamId)) next.delete(teamId);
+    else next.add(teamId);
+    onChange([...next].sort((a, b) => a - b));
+  }
+
+  return (
+    <fieldset className="line-scope-picker">
+      <legend>Split Between Teams</legend>
+      <div className="line-scope-options">
+        <label className={`line-scope-option${selected.size === 0 ? " selected" : ""}`}>
+          <input type="checkbox" checked={selected.size === 0} onChange={() => onChange([])} />
+          <span className="team-swatch general" />
+          <strong>General</strong>
+        </label>
+        {teams.map((team) => (
+          <label className={`line-scope-option${selected.has(team.id) ? " selected" : ""}`} key={team.id}>
+            <input type="checkbox" checked={selected.has(team.id)} onChange={() => toggleTeam(team.id)} />
+            <span className="team-swatch" style={{ background: teamColor(teams, team.id) }} />
+            <strong>{team.code}</strong>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function InvoiceReferencePicker({ purchases, value, onChange }) {
+  const selected = new Set((value || []).map(Number));
+
+  function toggleItem(itemId) {
+    const next = new Set(selected);
+    if (next.has(itemId)) next.delete(itemId);
+    else next.add(itemId);
+    onChange([...next].sort((a, b) => a - b));
+  }
+
+  return (
+    <fieldset className="line-scope-picker reference-picker">
+      <legend>Apply To Items</legend>
+      <div className="line-scope-options reference-options">
+        {purchases.map((purchase) => (
+          <label className={`line-scope-option${selected.has(purchase.id) ? " selected" : ""}`} key={purchase.id}>
+            <input type="checkbox" checked={selected.has(purchase.id)} onChange={() => toggleItem(purchase.id)} />
+            <span>{purchase.notes || purchase.category}</span>
+          </label>
+        ))}
+        {purchases.length === 0 && <span className="empty-reference-note">Add an item line before recording tax or discount.</span>}
+      </div>
+    </fieldset>
+  );
+}
+
+function LineBudgetIndicator({ purchase, purchases, teams }) {
+  const breakdown = purchaseBudgetBreakdown(purchase, purchases);
+  const tooltip = purchase.sponsored_by
+    ? "Team budget used:\nSponsored purchase - no team budget deducted"
+    : `Team budget used:\n${breakdown.map((entry) => `${teamName(teams, entry.teamId)}: ${money(entry.amount)}`).join("\n")}`;
+
+  return <button type="button" className="line-budget-indicator" title={tooltip} aria-label={tooltip.replaceAll("\n", ", ")}>$</button>;
+}
+
+function InvoiceCard({ invoice, teams, defaultTeamIds, canEdit, onView, onDelete, onPatch, onAddPurchase, onPatchPurchase, onDeletePurchase, onReplacePdf, onDeletePdf }) {
+  const newPurchaseDraft = () => ({ category: "Item", quantity: 1, original_amount: "", notes: "", team_ids: [...defaultTeamIds], referenced_item_ids: [] });
+  const [purchaseDraft, setPurchaseDraft] = useState(newPurchaseDraft);
   const [replacementPdf, setReplacementPdf] = useState(null);
   const [editing, setEditing] = useState(false);
   const [headerDraft, setHeaderDraft] = useState({
-    team_id: invoice.team_id || "",
     vendor: invoice.vendor,
     invoice_number: invoice.invoice_number,
     description: invoice.description,
@@ -1879,7 +1992,6 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
 
   useEffect(() => {
     setHeaderDraft({
-      team_id: invoice.team_id || "",
       vendor: invoice.vendor,
       invoice_number: invoice.invoice_number,
       description: invoice.description,
@@ -1889,8 +2001,12 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
       is_sponsored: Boolean(invoice.sponsored_by),
       sponsored_by: invoice.sponsored_by || "",
     });
+    setPurchaseDraft(newPurchaseDraft());
     setReplacementPdf(null);
-  }, [invoice]);
+  }, [invoice, defaultTeamIds.join(",")]);
+
+  const referenceablePurchases = (invoice.purchases || []).filter((purchase) => !isInvoiceAdjustment(purchase.category));
+  const purchaseDraftIsAdjustment = isInvoiceAdjustment(purchaseDraft.category);
 
   async function addPurchase(event) {
     event.preventDefault();
@@ -1899,13 +2015,19 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
       window.alert("Quantity must be greater than zero.");
       return;
     }
+    if (purchaseDraftIsAdjustment && purchaseDraft.referenced_item_ids.length === 0) {
+      window.alert("Choose at least one invoice item for this tax or discount line.");
+      return;
+    }
     await onAddPurchase(invoice.id, {
       category: purchaseDraft.category.trim(),
       quantity: Number(purchaseDraft.quantity),
       original_amount: Number(purchaseDraft.original_amount),
       notes: purchaseDraft.notes.trim(),
+      team_ids: purchaseDraftIsAdjustment ? [] : purchaseDraft.team_ids,
+      referenced_item_ids: purchaseDraftIsAdjustment ? purchaseDraft.referenced_item_ids : [],
     });
-    setPurchaseDraft(emptyPurchase);
+    setPurchaseDraft(newPurchaseDraft());
   }
 
   async function saveHeader() {
@@ -1915,7 +2037,6 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
       return;
     }
     await onPatch(invoice.id, {
-      team_id: headerDraft.team_id ? Number(headerDraft.team_id) : null,
       vendor: headerDraft.vendor.trim(),
       invoice_number: headerDraft.invoice_number.trim(),
       description: headerDraft.description.trim(),
@@ -1943,7 +2064,6 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
     <article className="invoice-card">
       {editing ? (
         <div className="invoice-header-edit">
-          <label className="compact-field invoice-edit-team"><span>Team</span><select value={headerDraft.team_id || ""} onChange={(event) => setHeaderDraft({ ...headerDraft, team_id: event.target.value ? Number(event.target.value) : "" })}><option value="">General</option>{teams.map((team) => <option value={team.id} key={team.id}>{team.code}</option>)}</select></label>
           <label className="compact-field invoice-edit-vendor"><span>Vendor</span><input value={headerDraft.vendor} onChange={(event) => setHeaderDraft({ ...headerDraft, vendor: event.target.value })} /></label>
           <label className="compact-field invoice-edit-number"><span>Invoice Number</span><input placeholder="Optional" value={headerDraft.invoice_number} onChange={(event) => setHeaderDraft({ ...headerDraft, invoice_number: event.target.value })} /></label>
           <label className="compact-field invoice-edit-sponsor-toggle"><span>Sponsorship</span><div className="toggle-field"><input type="checkbox" checked={headerDraft.is_sponsored} onChange={(event) => setHeaderDraft({ ...headerDraft, is_sponsored: event.target.checked, sponsored_by: event.target.checked ? headerDraft.sponsored_by : "" })} /><span>Sponsored</span></div></label>
@@ -1966,7 +2086,7 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
       ) : (
         <header className="invoice-card-header">
           <div>
-            <span className="invoice-kicker">{teamCode(teams, invoice.team_id)} | Invoice <span className={invoice.invoice_number ? "" : "muted-na"}>{invoice.invoice_number || "NA"}</span></span>
+            <span className="invoice-kicker">Invoice <span className={invoice.invoice_number ? "" : "muted-na"}>{invoice.invoice_number || "NA"}</span></span>
             <h4>{invoice.description}</h4>
             <p>{shortDate(invoice.invoice_date || invoice.uploaded_at?.slice(0, 10))} | {invoice.has_pdf ? invoice.original_filename : "No PDF attached"}</p>
             <span className={`invoice-sponsor-status${invoice.sponsored_by ? " sponsored" : ""}`}>{invoice.sponsored_by ? `Sponsored by ${invoice.sponsored_by}` : "Not sponsored"}</span>
@@ -1977,7 +2097,7 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
           </div>
           <div className="row-actions invoice-header-actions">
             {invoice.has_pdf && <button type="button" onClick={() => onView(invoice)}>View PDF</button>}
-            {canEdit && <button type="button" onClick={() => setEditing(true)}>Edit</button>}
+            {canEdit && <button type="button" onClick={() => setEditing(true)}>Edit Invoice</button>}
           </div>
         </header>
       )}
@@ -1992,20 +2112,31 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
 
       {canEdit && editing && (
         <form className="invoice-purchase-form" onSubmit={addPurchase}>
-          <label className="compact-field"><span>Type</span><input list="invoice-purchase-categories" value={purchaseDraft.category} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, category: event.target.value })} /></label>
+          <label className="compact-field"><span>Type</span><input list="invoice-purchase-categories" value={purchaseDraft.category} onChange={(event) => {
+            const category = event.target.value;
+            const adjustment = isInvoiceAdjustment(category);
+            setPurchaseDraft({ ...purchaseDraft, category, team_ids: adjustment ? [] : purchaseDraft.team_ids, referenced_item_ids: adjustment ? purchaseDraft.referenced_item_ids : [] });
+          }} /></label>
           <label className="compact-field purchase-description-field"><span>What It Is</span><input placeholder="Item, shipping, tax, fee..." value={purchaseDraft.notes} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, notes: event.target.value })} /></label>
           <label className="compact-field"><span>Quantity</span><input type="number" min="0.000001" step="any" value={purchaseDraft.quantity} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, quantity: event.target.value })} /></label>
           <label className="compact-field"><span>Unit Price ({invoice.currency})</span><input type="number" step="0.01" value={purchaseDraft.original_amount} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, original_amount: event.target.value })} /></label>
           <button>Add Line</button>
+          <div className="purchase-allocation-field">
+            {purchaseDraftIsAdjustment ? (
+              <InvoiceReferencePicker purchases={referenceablePurchases} value={purchaseDraft.referenced_item_ids} onChange={(referenced_item_ids) => setPurchaseDraft({ ...purchaseDraft, referenced_item_ids })} />
+            ) : (
+              <TeamAllocationPicker teams={teams} value={purchaseDraft.team_ids} onChange={(team_ids) => setPurchaseDraft({ ...purchaseDraft, team_ids })} />
+            )}
+          </div>
         </form>
       )}
 
       <div className="invoice-purchase-list">
         <div className="invoice-purchase-labels" aria-hidden="true">
-          <span>Type</span><span>What It Is</span><span>Qty</span><span>Unit Price</span><span>Line Total</span><span>SGD Total</span><span></span>
+          <span>Type</span><span>What It Is</span><span>Qty</span><span>Unit Price</span><span>Line Total</span><span>SGD Total</span><span>Allocation</span><span></span>
         </div>
         {(invoice.purchases || []).map((purchase) => (
-          <InvoicePurchaseRow key={purchase.id} purchase={purchase} canEdit={canEdit && editing} onPatch={onPatchPurchase} onDelete={onDeletePurchase} />
+          <InvoicePurchaseRow key={purchase.id} purchase={purchase} purchases={invoice.purchases || []} teams={teams} canEdit={canEdit && editing} onPatch={onPatchPurchase} onDelete={onDeletePurchase} />
         ))}
         {(!invoice.purchases || invoice.purchases.length === 0) && <p className="empty-note invoice-empty-purchases">No purchases recorded for this invoice yet.</p>}
       </div>
@@ -2013,18 +2144,29 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
   );
 }
 
-function InvoicePurchaseRow({ purchase, canEdit, onPatch, onDelete }) {
+function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDelete }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({ category: purchase.category, quantity: purchase.quantity || 1, original_amount: purchase.original_amount, notes: purchase.notes || "" });
+  const [draft, setDraft] = useState({ category: purchase.category, quantity: purchase.quantity || 1, original_amount: purchase.original_amount, notes: purchase.notes || "", team_ids: purchase.team_ids || [], referenced_item_ids: purchase.referenced_item_ids || [] });
 
   useEffect(() => {
-    setDraft({ category: purchase.category, quantity: purchase.quantity || 1, original_amount: purchase.original_amount, notes: purchase.notes || "" });
+    setDraft({ category: purchase.category, quantity: purchase.quantity || 1, original_amount: purchase.original_amount, notes: purchase.notes || "", team_ids: purchase.team_ids || [], referenced_item_ids: purchase.referenced_item_ids || [] });
     setEditing(false);
   }, [purchase]);
+
+  const draftIsAdjustment = isInvoiceAdjustment(draft.category);
+  const referenceablePurchases = purchases.filter((item) => item.id !== purchase.id && !isInvoiceAdjustment(item.category));
+  const referencedItems = (purchase.referenced_item_ids || []).map((itemId) => purchases.find((item) => item.id === itemId)).filter(Boolean);
+  const allocationLabel = isInvoiceAdjustment(purchase.category)
+    ? `Applied to: ${referencedItems.map((item) => item.notes || item.category).join(", ") || "No item selected"}`
+    : teamAllocationLabel(teams, purchase.team_ids);
 
   async function save() {
     if (Number(draft.quantity) <= 0) {
       window.alert("Quantity must be greater than zero.");
+      return;
+    }
+    if (draftIsAdjustment && draft.referenced_item_ids.length === 0) {
+      window.alert("Choose at least one invoice item for this tax or discount line.");
       return;
     }
     await onPatch(purchase.id, {
@@ -2032,6 +2174,8 @@ function InvoicePurchaseRow({ purchase, canEdit, onPatch, onDelete }) {
       quantity: Number(draft.quantity),
       original_amount: Number(draft.original_amount),
       notes: draft.notes.trim(),
+      team_ids: draftIsAdjustment ? [] : draft.team_ids,
+      referenced_item_ids: draftIsAdjustment ? draft.referenced_item_ids : [],
     });
     setEditing(false);
   }
@@ -2040,23 +2184,35 @@ function InvoicePurchaseRow({ purchase, canEdit, onPatch, onDelete }) {
     <div className={`invoice-purchase-row${editing ? " editing" : ""}`}>
       {editing ? (
         <>
-          <label className="mobile-line-field"><span>Type</span><input aria-label="Type" list="invoice-purchase-categories" value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} /></label>
+          <label className="mobile-line-field"><span>Type</span><input aria-label="Type" list="invoice-purchase-categories" value={draft.category} onChange={(event) => {
+            const category = event.target.value;
+            const adjustment = isInvoiceAdjustment(category);
+            setDraft({ ...draft, category, team_ids: adjustment ? [] : draft.team_ids, referenced_item_ids: adjustment ? draft.referenced_item_ids : [] });
+          }} /></label>
           <label className="mobile-line-field invoice-line-description"><span>What It Is</span><input aria-label="What it is" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
           <label className="mobile-line-field"><span>Qty</span><input aria-label="Quantity" type="number" min="0.000001" step="any" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} /></label>
           <label className="mobile-line-field"><span>Unit Price</span><input aria-label="Unit price" type="number" step="0.01" value={draft.original_amount} onChange={(event) => setDraft({ ...draft, original_amount: event.target.value })} /></label>
           <strong data-label="Line Total">{currencyMoney(Number(draft.quantity || 0) * Number(draft.original_amount || 0), purchase.currency)}</strong>
           <strong data-label="SGD Total">{money(convertedSgd(Number(draft.quantity || 0) * Number(draft.original_amount || 0), purchase.exchange_rate_to_sgd))}</strong>
+          <div className="invoice-line-allocation">
+            {draftIsAdjustment ? (
+              <InvoiceReferencePicker purchases={referenceablePurchases} value={draft.referenced_item_ids} onChange={(referenced_item_ids) => setDraft({ ...draft, referenced_item_ids })} />
+            ) : (
+              <TeamAllocationPicker teams={teams} value={draft.team_ids} onChange={(team_ids) => setDraft({ ...draft, team_ids })} />
+            )}
+          </div>
           <div className="row-actions"><button type="button" onClick={save}>Save</button><button type="button" onClick={() => setEditing(false)}>Cancel</button></div>
         </>
       ) : (
         <>
           <strong data-label="Type">{purchase.category}</strong>
-          <span data-label="What It Is" className={`invoice-line-description${purchase.notes ? "" : " muted-placeholder"}`}>{purchase.notes || "No description"}</span>
+          <span data-label="What It Is" className={`invoice-line-description${purchase.notes ? "" : " muted-placeholder"}`}><span className="invoice-line-content"><span>{purchase.notes || "No description"}</span><LineBudgetIndicator purchase={purchase} purchases={purchases} teams={teams} /></span></span>
           <span data-label="Qty">{purchase.quantity || 1}</span>
           <span data-label="Unit Price">{currencyMoney(purchase.original_amount, purchase.currency)}</span>
           <strong data-label="Line Total">{currencyMoney((purchase.quantity || 1) * purchase.original_amount, purchase.currency)}</strong>
           <strong data-label="SGD Total">{money(purchase.amount)}</strong>
-          {canEdit ? <div className="row-actions"><button type="button" onClick={() => setEditing(true)}>Edit</button><button type="button" className="danger-button" onClick={() => onDelete(purchase)}>Delete</button></div> : <span />}
+          <span data-label="Allocation" className="invoice-allocation-summary">{allocationLabel}</span>
+          {canEdit ? <div className="row-actions"><button type="button" onClick={() => setEditing(true)}>Edit Line</button><button type="button" className="danger-button" onClick={() => onDelete(purchase)}>Delete Line</button></div> : <span />}
         </>
       )}
     </div>
@@ -2629,7 +2785,7 @@ function Sponsors({ projectId, selectedTeam, token, teams, sponsors, invoices, a
         id: `invoice-${invoice.id}`,
         sponsor: invoice.sponsored_by,
         type: "Invoice",
-        team_id: invoice.team_id,
+        team_ids: invoiceTeamIds(invoice),
         name: invoice.description,
         value: invoice.amount_sgd,
         notes: `${invoice.invoice_number || "NA"} - ${shortDate(invoice.invoice_date)}`,
@@ -2720,7 +2876,7 @@ function Sponsors({ projectId, selectedTeam, token, teams, sponsors, invoices, a
                 <tr key={item.id}>
                   <td>{item.sponsor}</td>
                   <td>{item.type}</td>
-                  <td>{teamCode(teams, item.team_id)}</td>
+                  <td>{item.team_ids ? teamAllocationLabel(teams, item.team_ids) : teamCode(teams, item.team_id)}</td>
                   <td>{item.name}</td>
                   <td>{money(item.value)}</td>
                   <td>{item.notes}</td>

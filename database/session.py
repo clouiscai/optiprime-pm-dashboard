@@ -121,6 +121,30 @@ def run_sqlite_migrations():
         """,
     }
     with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS budget_log_teams (
+                    budget_log_id INTEGER NOT NULL REFERENCES budget_logs(id) ON DELETE CASCADE,
+                    team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+                    PRIMARY KEY (budget_log_id, team_id)
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS budget_log_references (
+                    source_log_id INTEGER NOT NULL REFERENCES budget_logs(id) ON DELETE CASCADE,
+                    target_log_id INTEGER NOT NULL REFERENCES budget_logs(id) ON DELETE CASCADE,
+                    PRIMARY KEY (source_log_id, target_log_id)
+                )
+                """
+            )
+        )
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_budget_log_teams_team_id ON budget_log_teams (team_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_budget_log_references_target_log_id ON budget_log_references (target_log_id)"))
         for table, statement in create_statements.items():
             if table not in existing_tables:
                 connection.execute(text(statement))
@@ -145,6 +169,22 @@ def run_sqlite_migrations():
                     SET invoice_id = (SELECT invoices.id FROM invoices WHERE invoices.budget_log_id = budget_logs.id)
                     WHERE invoice_id IS NULL
                       AND EXISTS (SELECT 1 FROM invoices WHERE invoices.budget_log_id = budget_logs.id)
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT OR IGNORE INTO budget_log_teams (budget_log_id, team_id)
+                    SELECT budget_logs.id, COALESCE(budget_logs.team_id, invoices.team_id)
+                    FROM budget_logs
+                    LEFT JOIN invoices ON invoices.id = budget_logs.invoice_id
+                    WHERE COALESCE(budget_logs.team_id, invoices.team_id) IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM budget_log_teams
+                          WHERE budget_log_teams.budget_log_id = budget_logs.id
+                      )
                     """
                 )
             )
@@ -204,6 +244,30 @@ def run_postgres_migrations():
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS vendor VARCHAR(160) DEFAULT '' NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(120) DEFAULT '' NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS sponsored_by VARCHAR(160) DEFAULT '' NOT NULL"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS budget_log_teams (
+                    budget_log_id INTEGER NOT NULL REFERENCES budget_logs(id) ON DELETE CASCADE,
+                    team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+                    PRIMARY KEY (budget_log_id, team_id)
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS budget_log_references (
+                    source_log_id INTEGER NOT NULL REFERENCES budget_logs(id) ON DELETE CASCADE,
+                    target_log_id INTEGER NOT NULL REFERENCES budget_logs(id) ON DELETE CASCADE,
+                    PRIMARY KEY (source_log_id, target_log_id)
+                )
+                """
+            )
+        )
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_budget_log_teams_team_id ON budget_log_teams (team_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_budget_log_references_target_log_id ON budget_log_references (target_log_id)"))
         connection.execute(text("UPDATE invoices SET vendor = 'Unassigned Vendor' WHERE BTRIM(COALESCE(vendor, '')) = ''"))
         connection.execute(text("UPDATE invoices SET invoice_number = 'INV-' || id::text WHERE BTRIM(COALESCE(invoice_number, '')) = ''"))
         connection.execute(
@@ -218,6 +282,23 @@ def run_postgres_migrations():
             )
         )
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_budget_logs_invoice_id ON budget_logs (invoice_id)"))
+        connection.execute(
+            text(
+                """
+                INSERT INTO budget_log_teams (budget_log_id, team_id)
+                SELECT budget_logs.id, COALESCE(budget_logs.team_id, invoices.team_id)
+                FROM budget_logs
+                LEFT JOIN invoices ON invoices.id = budget_logs.invoice_id
+                WHERE COALESCE(budget_logs.team_id, invoices.team_id) IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM budget_log_teams
+                      WHERE budget_log_teams.budget_log_id = budget_logs.id
+                  )
+                ON CONFLICT (budget_log_id, team_id) DO NOTHING
+                """
+            )
+        )
         connection.execute(
             text(
                 """

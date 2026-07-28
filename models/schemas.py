@@ -219,6 +219,8 @@ class BudgetLogCreate(BudgetLogBase):
 
 class BudgetLogUpdate(BaseModel):
     team_id: int | None = None
+    team_ids: list[int] | None = None
+    referenced_item_ids: list[int] | None = None
     category: str | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     quantity: float | None = Field(default=None, gt=0)
@@ -235,6 +237,8 @@ class BudgetLogRead(BudgetLogBase):
 
     id: int
     invoice_id: int | None = None
+    team_ids: list[int] = Field(default_factory=list)
+    referenced_item_ids: list[int] = Field(default_factory=list)
 
 
 class InvoicePurchaseCreate(BaseModel):
@@ -242,6 +246,8 @@ class InvoicePurchaseCreate(BaseModel):
     quantity: float = Field(default=1, gt=0)
     original_amount: float
     notes: str = ""
+    team_ids: list[int] = Field(default_factory=list)
+    referenced_item_ids: list[int] = Field(default_factory=list)
 
 
 class InvoiceUpdate(BaseModel):

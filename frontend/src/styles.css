@@ -690,7 +690,7 @@ h2 {
 }
 
 .invoice-form .invoice-vendor-field {
-  grid-column: 2 / 5;
+  grid-column: 1 / 5;
 }
 
 .invoice-form .invoice-number-field {
@@ -875,19 +875,19 @@ h2 {
 }
 
 .invoice-edit-vendor {
-  grid-column: 3 / 6;
+  grid-column: 1 / 4;
 }
 
 .invoice-edit-number {
-  grid-column: 6 / 8;
+  grid-column: 4 / 6;
 }
 
 .invoice-edit-sponsor-toggle {
-  grid-column: 8 / 10;
+  grid-column: 6 / 8;
 }
 
 .invoice-edit-sponsor-name {
-  grid-column: 10 / 13;
+  grid-column: 8 / 13;
 }
 
 .invoice-edit-description {
@@ -953,6 +953,94 @@ h2 {
   white-space: nowrap;
 }
 
+.purchase-allocation-field {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.line-scope-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--op-line);
+  border-radius: 6px;
+}
+
+.line-scope-picker legend {
+  padding: 0 4px;
+  color: var(--op-muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.line-scope-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.line-scope-option {
+  display: inline-grid;
+  grid-template-columns: 16px 10px minmax(0, auto);
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  min-width: 86px;
+  padding: 5px 8px;
+  border: 1px solid var(--op-line);
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.line-scope-option.selected {
+  border-color: var(--op-coral);
+  background: #fff4f5;
+}
+
+.line-scope-option input {
+  width: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  margin: 0;
+  accent-color: var(--op-coral);
+}
+
+.line-scope-option strong,
+.line-scope-option > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.team-swatch {
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+}
+
+.team-swatch.general {
+  background: var(--op-steel);
+}
+
+.reference-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.reference-options .line-scope-option {
+  grid-template-columns: 16px minmax(0, 1fr);
+  width: 100%;
+}
+
+.empty-reference-note {
+  color: var(--op-muted);
+  font-size: 12px;
+  padding: 4px 0;
+}
+
 .invoice-purchase-list {
   overflow-x: auto;
 }
@@ -962,8 +1050,8 @@ h2 {
   align-items: center;
   display: grid;
   gap: 10px;
-  grid-template-columns: 110px minmax(230px, 1fr) 70px 120px 130px 120px 150px;
-  min-width: 1030px;
+  grid-template-columns: 100px minmax(210px, 1fr) 65px 110px 120px 110px minmax(230px, 1.1fr) 180px;
+  min-width: 1305px;
   padding: 9px 14px;
 }
 
@@ -999,6 +1087,57 @@ h2 {
 
 .invoice-purchase-row .row-actions {
   flex-wrap: nowrap;
+}
+
+.invoice-line-content {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+}
+
+.invoice-line-content > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.line-budget-indicator {
+  align-items: center;
+  align-self: center;
+  background: #ffffff;
+  border: 1px solid #c9cdd3;
+  border-radius: 50%;
+  color: var(--op-coral-dark);
+  cursor: help;
+  display: inline-flex;
+  flex: 0 0 24px;
+  font-size: 12px;
+  font-weight: 800;
+  height: 24px;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0;
+  width: 24px;
+}
+
+.line-budget-indicator:hover,
+.line-budget-indicator:focus-visible {
+  background: #fff1f2;
+  border-color: var(--op-coral);
+}
+
+.invoice-line-allocation {
+  min-width: 0;
+}
+
+.invoice-line-allocation .line-scope-picker {
+  padding: 6px 8px 8px;
+}
+
+.invoice-allocation-summary {
+  color: #374151;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .muted-placeholder {
@@ -3275,8 +3414,28 @@ progress {
   }
 
   .invoice-line-description,
+  .invoice-line-allocation,
+  .invoice-allocation-summary,
   .invoice-purchase-row .row-actions {
     grid-column: 1 / -1;
+  }
+
+  .line-scope-picker {
+    width: 100%;
+  }
+
+  .line-scope-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .line-scope-option {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .reference-options {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .invoice-purchase-row .row-actions button {

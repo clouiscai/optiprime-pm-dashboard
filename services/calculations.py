@@ -3,6 +3,7 @@ from datetime import date
 from sqlalchemy.orm import Session, joinedload
 
 from models.entities import Blocker, BOMItem, BudgetLog, Project, Sponsor, Task, Team
+from services.finance import project_purchase_allocations
 
 
 def task_with_open_blockers(task: Task) -> dict:
@@ -39,7 +40,13 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
 
     all_tasks = db.query(Task).filter(Task.project_id == project.id).all()
     all_bom_items = db.query(BOMItem).filter(BOMItem.project_id == project.id).all()
-    all_logs = db.query(BudgetLog).filter(BudgetLog.project_id == project.id, BudgetLog.invoice_id.is_not(None)).all()
+    all_logs = (
+        db.query(BudgetLog)
+        .options(joinedload(BudgetLog.team_allocations), joinedload(BudgetLog.reference_links))
+        .filter(BudgetLog.project_id == project.id, BudgetLog.invoice_id.is_not(None))
+        .all()
+    )
+    purchase_allocations = project_purchase_allocations(all_logs)
     all_sponsors = db.query(Sponsor).filter(Sponsor.project_id == project.id).all()
     all_blockers = (
         db.query(Blocker)
@@ -53,7 +60,11 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
     allocated_budget = round(sum(summary_team.budget for summary_team in teams), 2)
     unallocated_budget = round(project_planned_budget - allocated_budget, 2)
     unallocated_actual_spend = round(
-        sum(log.amount for log in all_logs if log.team_id is None and not log.sponsored_by),
+        sum(
+            purchase_allocations.get(log.id, {}).get(None, 0)
+            for log in all_logs
+            if not log.sponsored_by
+        ),
         2,
     )
     unallocated_remaining = round(unallocated_budget - unallocated_actual_spend, 2)
@@ -62,7 +73,7 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
         tasks = [task for task in all_tasks if task.team_id == team_id]
         blockers = [blocker for blocker in all_blockers if blocker.task and blocker.task.team_id == team_id]
         bom_items = [item for item in all_bom_items if item.team_id == team_id or item.team_id is None]
-        logs = [log for log in all_logs if log.team_id == team_id]
+        logs = [log for log in all_logs if team_id in purchase_allocations.get(log.id, {})]
         sponsors = [sponsor for sponsor in all_sponsors if sponsor.team_id == team_id]
     else:
         tasks = all_tasks
@@ -81,7 +92,17 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
     if team_id:
         own_bom_total = round(sum(item.quantity * item.unit_cost for item in bom_items if item.team_id == team_id), 2)
         bom_total = round(own_bom_total + shared_bom_per_team, 2)
-    budget_log_total = round(sum(log.amount for log in logs if not log.sponsored_by), 2)
+    if team_id:
+        budget_log_total = round(
+            sum(
+                purchase_allocations.get(log.id, {}).get(team_id, 0)
+                for log in logs
+                if not log.sponsored_by
+            ),
+            2,
+        )
+    else:
+        budget_log_total = round(sum(log.amount for log in logs if not log.sponsored_by), 2)
     sponsor_total = round(sum(sponsor.amount for sponsor in sponsors), 2)
     expected_spend = bom_total
     actual_spend = budget_log_total
@@ -97,7 +118,11 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
         team_tasks = [task for task in all_tasks if task.team_id == summary_team.id]
         team_bom_total = sum(item.quantity * item.unit_cost for item in all_bom_items if item.team_id == summary_team.id)
         team_bom_total += shared_bom_per_team
-        team_log_total = sum(log.amount for log in all_logs if log.team_id == summary_team.id and not log.sponsored_by)
+        team_log_total = sum(
+            purchase_allocations.get(log.id, {}).get(summary_team.id, 0)
+            for log in all_logs
+            if not log.sponsored_by
+        )
         team_sponsor_total = sum(sponsor.amount for sponsor in all_sponsors if sponsor.team_id == summary_team.id)
         team_parent_ids = {task.parent_task_id for task in team_tasks if task.parent_task_id}
         team_leaf_tasks = [task for task in team_tasks if task.id not in team_parent_ids] or team_tasks

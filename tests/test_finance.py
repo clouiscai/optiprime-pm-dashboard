@@ -18,6 +18,7 @@ from api.routes import (
     update_invoice,
     upload_invoice,
 )
+from database.seed import assign_existing_unscoped_records
 from database.session import Base
 from models.entities import BOMItem, BudgetLog, Invoice, Project, Team
 from models.schemas import BudgetLogCreate, BudgetLogUpdate, InvoicePurchaseCreate, InvoiceUpdate
@@ -142,7 +143,7 @@ class FinanceTests(unittest.TestCase):
         first = asyncio.run(
             create_invoice_purchase(
                 invoice.id,
-                InvoicePurchaseCreate(category="Components", quantity=2, original_amount=100, notes="Thruster"),
+                InvoicePurchaseCreate(category="Components", quantity=2, original_amount=100, notes="Thruster", team_ids=[self.uav_id]),
                 "test-token",
                 self.db,
             )
@@ -150,7 +151,7 @@ class FinanceTests(unittest.TestCase):
         second = asyncio.run(
             create_invoice_purchase(
                 invoice.id,
-                InvoicePurchaseCreate(category="Discount", original_amount=-20, notes="Supplier discount"),
+                InvoicePurchaseCreate(category="Discount", original_amount=-20, notes="Supplier discount", referenced_item_ids=[first.id]),
                 "test-token",
                 self.db,
             )
@@ -166,8 +167,9 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(second.invoice_id, invoice.id)
         self.assertEqual(first.sponsored_by, "Ocean Foundation")
         self.assertEqual(second.sponsored_by, "Ocean Foundation")
-        self.assertEqual(first.team_id, self.uav_id)
-        self.assertEqual(second.team_id, self.uav_id)
+        self.assertEqual(first.team_ids, [self.uav_id])
+        self.assertEqual(second.team_ids, [])
+        self.assertEqual(second.referenced_item_ids, [first.id])
         self.assertEqual(first.quantity, 2)
         self.assertEqual(first.amount, 270)
         self.assertEqual(self.db.query(BudgetLog).filter(BudgetLog.invoice_id == invoice.id).count(), 2)
@@ -195,11 +197,11 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(invoice.amount_sgd, 378)
         self.assertEqual(project_dashboard(self.db, project, self.uav_id)["actual_spend"], 378)
 
-        asyncio.run(update_invoice(invoice.id, InvoiceUpdate(team_id=None), "test-token", self.db))
+        asyncio.run(update_budget_log(first.id, BudgetLogUpdate(team_ids=[]), "test-token", self.db))
         self.db.refresh(invoice)
         self.db.refresh(first)
         self.db.refresh(second)
-        self.assertIsNone(invoice.team_id)
+        self.assertEqual(first.team_ids, [])
         self.assertIsNone(first.team_id)
         self.assertIsNone(second.team_id)
         self.assertEqual(project_dashboard(self.db, project, self.uav_id)["actual_spend"], 0)
@@ -220,6 +222,119 @@ class FinanceTests(unittest.TestCase):
         asyncio.run(delete_invoice(invoice.id, "test-token", self.db))
         self.assertEqual(self.db.query(Invoice).count(), 0)
         self.assertEqual(self.db.query(BudgetLog).count(), 1)
+
+    def test_invoice_lines_split_teams_and_adjustments_follow_items(self):
+        self.db.add_all(
+            [
+                Team(project_id=self.project_id, code="USV", name="USV Team", domain="Surface", budget=300),
+                Team(project_id=self.project_id, code="UUV", name="UUV Team", domain="Underwater", budget=300),
+            ]
+        )
+        self.db.commit()
+        teams = {team.code: team for team in self.db.query(Team).filter(Team.project_id == self.project_id).all()}
+
+        upload = UploadFile(filename="shared-order.pdf", file=io.BytesIO(b"%PDF-1.4\n%%EOF"))
+        upload.headers = {"content-type": "application/pdf"}
+        invoice = asyncio.run(
+            upload_invoice(
+                "test-token",
+                project_id=self.project_id,
+                vendor="Shared Supplier",
+                invoice_number="SHARED-1",
+                sponsored_by="",
+                description="Mixed team order",
+                invoice_date=date(2026, 7, 5),
+                currency="SGD",
+                exchange_rate_to_sgd=1,
+                team_id=None,
+                category="",
+                original_amount=0,
+                file=upload,
+                db=self.db,
+            )
+        )
+        uav_item = asyncio.run(
+            create_invoice_purchase(
+                invoice.id,
+                InvoicePurchaseCreate(category="Item", original_amount=100, notes="UAV part", team_ids=[teams["UAV"].id]),
+                "test-token",
+                self.db,
+            )
+        )
+        shared_item = asyncio.run(
+            create_invoice_purchase(
+                invoice.id,
+                InvoicePurchaseCreate(category="Item", original_amount=300, notes="Shared electronics", team_ids=[teams["UAV"].id, teams["USV"].id]),
+                "test-token",
+                self.db,
+            )
+        )
+        asyncio.run(
+            create_invoice_purchase(
+                invoice.id,
+                InvoicePurchaseCreate(category="Shipping", original_amount=90, notes="Freight", team_ids=[team.id for team in teams.values()]),
+                "test-token",
+                self.db,
+            )
+        )
+        asyncio.run(
+            create_invoice_purchase(
+                invoice.id,
+                InvoicePurchaseCreate(category="Tax", original_amount=49, notes="GST", referenced_item_ids=[uav_item.id, shared_item.id]),
+                "test-token",
+                self.db,
+            )
+        )
+        asyncio.run(
+            create_invoice_purchase(
+                invoice.id,
+                InvoicePurchaseCreate(category="Discount", original_amount=-40, notes="Bundle discount", referenced_item_ids=[uav_item.id, shared_item.id]),
+                "test-token",
+                self.db,
+            )
+        )
+
+        project = self.db.get(Project, self.project_id)
+        dashboards = {
+            code: project_dashboard(self.db, project, team.id)
+            for code, team in teams.items()
+        }
+        self.assertEqual(project_dashboard(self.db, project)["actual_spend"], 499)
+        self.assertEqual(dashboards["UAV"]["actual_spend"], 285.63)
+        self.assertEqual(dashboards["USV"]["actual_spend"], 183.37)
+        self.assertEqual(dashboards["UUV"]["actual_spend"], 30)
+
+    def test_seed_does_not_reassign_general_invoice_lines(self):
+        invoice = Invoice(
+            project_id=self.project_id,
+            description="General order",
+            original_filename="",
+            stored_filename="",
+        )
+        self.db.add(invoice)
+        self.db.flush()
+        invoice_line = BudgetLog(
+            project_id=self.project_id,
+            invoice_id=invoice.id,
+            category="Item",
+            amount=25,
+            date=date(2026, 7, 6),
+        )
+        legacy_log = BudgetLog(
+            project_id=self.project_id,
+            category="Legacy expense",
+            amount=10,
+            date=date(2026, 7, 6),
+        )
+        self.db.add_all([invoice_line, legacy_log])
+        self.db.commit()
+
+        project = self.db.get(Project, self.project_id)
+        teams = {"UAV": self.db.get(Team, self.uav_id), "USV": self.db.get(Team, self.uav_id), "UUV": self.db.get(Team, self.uav_id)}
+        assign_existing_unscoped_records(self.db, project, teams)
+
+        self.assertIsNone(invoice_line.team_id)
+        self.assertEqual(legacy_log.team_id, self.uav_id)
 
 
 if __name__ == "__main__":

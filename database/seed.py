@@ -42,7 +42,17 @@ def ensure_teams(db, project):
 
 def assign_existing_unscoped_records(db, project, teams):
     team_cycle = [teams["USV"], teams["UAV"], teams["UUV"]]
-    for index, log in enumerate(db.query(BudgetLog).filter(BudgetLog.project_id == project.id, BudgetLog.team_id.is_(None)).order_by(BudgetLog.id).all()):
+    legacy_logs = (
+        db.query(BudgetLog)
+        .filter(
+            BudgetLog.project_id == project.id,
+            BudgetLog.team_id.is_(None),
+            BudgetLog.invoice_id.is_(None),
+        )
+        .order_by(BudgetLog.id)
+        .all()
+    )
+    for index, log in enumerate(legacy_logs):
         log.team_id = team_cycle[index % len(team_cycle)].id
 
     for user in db.query(User).filter(User.team_id.is_(None)).order_by(User.id).all():
