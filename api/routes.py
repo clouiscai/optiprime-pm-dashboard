@@ -943,7 +943,6 @@ def list_invoices(project_id: int, _: Protected, team_id: int | None = None, db:
                     team_id in purchase_allocation_weights(purchase, {item.id: item for item in invoice.purchases})
                     for purchase in invoice.purchases
                 )
-                or (not invoice.purchases and invoice.team_id == team_id)
             )
         ]
     return invoices
@@ -959,7 +958,6 @@ async def upload_invoice(
     invoice_date: DateType = Form(...),
     currency: str = Form("SGD"),
     exchange_rate_to_sgd: float = Form(1),
-    team_id: int | None = Form(None),
     category: str = Form(""),
     original_amount: float = Form(0),
     sponsored_by: str = Form(""),
@@ -978,12 +976,11 @@ async def upload_invoice(
     currency_code = normalize_currency(currency)
     amount_in_sgd(0, exchange_rate_to_sgd)
     clean_sponsor = sponsored_by.strip()
-    validated_team_id = validate_project_team(db, project_id, team_id)
     stored_name = f"{uuid4().hex}.pdf"
 
     invoice = Invoice(
         project_id=project_id,
-        team_id=validated_team_id,
+        team_id=None,
         budget_log_id=None,
         vendor=clean_vendor,
         invoice_number=clean_number,
@@ -1007,7 +1004,7 @@ async def upload_invoice(
             raise HTTPException(400, "A category is required when importing an invoice total")
         log = BudgetLog(
             project_id=project_id,
-            team_id=validated_team_id,
+            team_id=None,
             invoice_id=invoice.id,
             category=clean_category,
             currency=currency_code,
@@ -1020,7 +1017,7 @@ async def upload_invoice(
         )
         db.add(log)
         db.flush()
-        configure_purchase_scope(db, log, [validated_team_id] if validated_team_id else [], [])
+        configure_purchase_scope(db, log, [], [])
         invoice.budget_log_id = log.id
         refresh_invoice_totals(db, invoice)
     db.commit()
@@ -1091,8 +1088,6 @@ async def update_invoice(invoice_id: int, payload: InvoiceUpdate, _: Writable, d
         updates["currency"] = normalize_currency(updates["currency"])
     if "sponsored_by" in updates:
         updates["sponsored_by"] = updates["sponsored_by"].strip()
-    if "team_id" in updates:
-        updates["team_id"] = validate_project_team(db, invoice.project_id, updates["team_id"])
     for field, value in updates.items():
         setattr(invoice, field, value)
     for purchase in invoice.purchases:
@@ -1126,7 +1121,7 @@ async def create_invoice_purchase(
         raise HTTPException(400, "Purchase category is required")
     purchase = BudgetLog(
         project_id=invoice.project_id,
-        team_id=invoice.team_id,
+        team_id=None,
         invoice_id=invoice.id,
         category=category,
         quantity=payload.quantity,

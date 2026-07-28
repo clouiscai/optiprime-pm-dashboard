@@ -78,7 +78,6 @@ class FinanceTests(unittest.TestCase):
                         invoice_date=date(2026, 7, 4),
                         currency="SGD",
                         exchange_rate_to_sgd=1,
-                        team_id=None,
                         category="",
                         original_amount=0,
                         file=upload,
@@ -133,7 +132,6 @@ class FinanceTests(unittest.TestCase):
                 invoice_date=date(2026, 7, 3),
                 currency="USD",
                 exchange_rate_to_sgd=1.35,
-                team_id=self.uav_id,
                 category="",
                 original_amount=0,
                 file=upload,
@@ -159,7 +157,7 @@ class FinanceTests(unittest.TestCase):
         self.db.refresh(invoice)
         self.assertEqual(invoice.vendor, "Blue Robotics")
         self.assertEqual(invoice.invoice_number, "BR-1042")
-        self.assertEqual(invoice.team_id, self.uav_id)
+        self.assertIsNone(invoice.team_id)
         self.assertEqual(invoice.sponsored_by, "Ocean Foundation")
         self.assertEqual(invoice.original_amount, 180)
         self.assertEqual(invoice.amount_sgd, 243)
@@ -246,7 +244,6 @@ class FinanceTests(unittest.TestCase):
                 invoice_date=date(2026, 7, 5),
                 currency="SGD",
                 exchange_rate_to_sgd=1,
-                team_id=None,
                 category="",
                 original_amount=0,
                 file=upload,

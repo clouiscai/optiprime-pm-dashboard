@@ -251,7 +251,6 @@ class InvoicePurchaseCreate(BaseModel):
 
 
 class InvoiceUpdate(BaseModel):
-    team_id: int | None = None
     vendor: str | None = Field(default=None, min_length=1, max_length=160)
     invoice_number: str | None = Field(default=None, max_length=120)
     sponsored_by: str | None = Field(default=None, max_length=160)
@@ -266,7 +265,6 @@ class InvoiceRead(BaseModel):
 
     id: int
     project_id: int
-    team_id: int | None = None
     budget_log_id: int | None = None
     vendor: str
     invoice_number: str

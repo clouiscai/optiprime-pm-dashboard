@@ -161,6 +161,7 @@ def run_sqlite_migrations():
         if "invoices" in existing_tables:
             connection.execute(text("UPDATE invoices SET vendor = 'Unassigned Vendor' WHERE TRIM(COALESCE(vendor, '')) = ''"))
             connection.execute(text("UPDATE invoices SET invoice_number = 'INV-' || id WHERE TRIM(COALESCE(invoice_number, '')) = ''"))
+            connection.execute(text("UPDATE invoices SET team_id = NULL WHERE team_id IS NOT NULL"))
         if "budget_logs" in existing_tables and "invoices" in existing_tables:
             connection.execute(
                 text(
@@ -176,10 +177,9 @@ def run_sqlite_migrations():
                 text(
                     """
                     INSERT OR IGNORE INTO budget_log_teams (budget_log_id, team_id)
-                    SELECT budget_logs.id, COALESCE(budget_logs.team_id, invoices.team_id)
+                    SELECT budget_logs.id, budget_logs.team_id
                     FROM budget_logs
-                    LEFT JOIN invoices ON invoices.id = budget_logs.invoice_id
-                    WHERE COALESCE(budget_logs.team_id, invoices.team_id) IS NOT NULL
+                    WHERE budget_logs.team_id IS NOT NULL
                       AND NOT EXISTS (
                           SELECT 1
                           FROM budget_log_teams
@@ -270,6 +270,7 @@ def run_postgres_migrations():
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_budget_log_references_target_log_id ON budget_log_references (target_log_id)"))
         connection.execute(text("UPDATE invoices SET vendor = 'Unassigned Vendor' WHERE BTRIM(COALESCE(vendor, '')) = ''"))
         connection.execute(text("UPDATE invoices SET invoice_number = 'INV-' || id::text WHERE BTRIM(COALESCE(invoice_number, '')) = ''"))
+        connection.execute(text("UPDATE invoices SET team_id = NULL WHERE team_id IS NOT NULL"))
         connection.execute(
             text(
                 """
@@ -286,10 +287,9 @@ def run_postgres_migrations():
             text(
                 """
                 INSERT INTO budget_log_teams (budget_log_id, team_id)
-                SELECT budget_logs.id, COALESCE(budget_logs.team_id, invoices.team_id)
+                SELECT budget_logs.id, budget_logs.team_id
                 FROM budget_logs
-                LEFT JOIN invoices ON invoices.id = budget_logs.invoice_id
-                WHERE COALESCE(budget_logs.team_id, invoices.team_id) IS NOT NULL
+                WHERE budget_logs.team_id IS NOT NULL
                   AND NOT EXISTS (
                       SELECT 1
                       FROM budget_log_teams

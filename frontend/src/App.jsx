@@ -103,8 +103,7 @@ function isInvoiceAdjustment(category) {
 
 function invoiceTeamIds(invoice) {
   const directTeamIds = (invoice.purchases || []).flatMap((purchase) => purchase.team_ids || []);
-  if ((invoice.purchases || []).length) return [...new Set(directTeamIds)].sort((a, b) => a - b);
-  return invoice.team_id ? [invoice.team_id] : [];
+  return [...new Set(directTeamIds)].sort((a, b) => a - b);
 }
 
 function teamAllocationLabel(teams, teamIds) {
@@ -1603,8 +1602,7 @@ function Bom({ projectId, teamId, selectedTeam, token, teams, dashboard, bom, ca
 }
 
 function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, canEdit, onRefresh }) {
-  const defaultInvoiceTeam = selectedTeam === "master" ? "" : Number(selectedTeam);
-  const newInvoiceDraft = () => ({ team_id: defaultInvoiceTeam, vendor: "", invoice_number: "", description: "", invoice_date: today, currency: "SGD", exchange_rate_to_sgd: 1, is_sponsored: false, sponsored_by: "", file: null });
+  const newInvoiceDraft = () => ({ vendor: "", invoice_number: "", description: "", invoice_date: today, currency: "SGD", exchange_rate_to_sgd: 1, is_sponsored: false, sponsored_by: "", file: null });
   const [invoiceDraft, setInvoiceDraft] = useState(newInvoiceDraft);
   const [showInvoiceComposer, setShowInvoiceComposer] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
@@ -1700,7 +1698,6 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
     }
     const form = new FormData();
     form.append("project_id", String(projectId));
-    if (invoiceDraft.team_id) form.append("team_id", String(invoiceDraft.team_id));
     form.append("vendor", invoiceDraft.vendor.trim());
     form.append("invoice_number", invoiceDraft.invoice_number.trim());
     form.append("description", invoiceDraft.description.trim());
@@ -1965,13 +1962,11 @@ function InvoiceReferencePicker({ purchases, value, onChange }) {
   );
 }
 
-function LineBudgetIndicator({ purchase, purchases, teams }) {
+function lineBudgetTooltip(purchase, purchases, teams) {
   const breakdown = purchaseBudgetBreakdown(purchase, purchases);
-  const tooltip = purchase.sponsored_by
+  return purchase.sponsored_by
     ? "Team budget used:\nSponsored purchase - no team budget deducted"
     : `Team budget used:\n${breakdown.map((entry) => `${teamName(teams, entry.teamId)}: ${money(entry.amount)}`).join("\n")}`;
-
-  return <button type="button" className="line-budget-indicator" title={tooltip} aria-label={tooltip.replaceAll("\n", ", ")}>$</button>;
 }
 
 function InvoiceCard({ invoice, teams, defaultTeamIds, canEdit, onView, onDelete, onPatch, onAddPurchase, onPatchPurchase, onDeletePurchase, onReplacePdf, onDeletePdf }) {
@@ -2156,6 +2151,7 @@ function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDe
   const draftIsAdjustment = isInvoiceAdjustment(draft.category);
   const referenceablePurchases = purchases.filter((item) => item.id !== purchase.id && !isInvoiceAdjustment(item.category));
   const referencedItems = (purchase.referenced_item_ids || []).map((itemId) => purchases.find((item) => item.id === itemId)).filter(Boolean);
+  const budgetTooltip = lineBudgetTooltip(purchase, purchases, teams);
   const allocationLabel = isInvoiceAdjustment(purchase.category)
     ? `Applied to: ${referencedItems.map((item) => item.notes || item.category).join(", ") || "No item selected"}`
     : teamAllocationLabel(teams, purchase.team_ids);
@@ -2184,7 +2180,7 @@ function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDe
     <div className={`invoice-purchase-row${editing ? " editing" : ""}`}>
       {editing ? (
         <>
-          <label className="mobile-line-field"><span>Type</span><input aria-label="Type" list="invoice-purchase-categories" value={draft.category} onChange={(event) => {
+          <label className="mobile-line-field"><span>Type</span><input aria-label="Type" title={budgetTooltip} list="invoice-purchase-categories" value={draft.category} onChange={(event) => {
             const category = event.target.value;
             const adjustment = isInvoiceAdjustment(category);
             setDraft({ ...draft, category, team_ids: adjustment ? [] : draft.team_ids, referenced_item_ids: adjustment ? draft.referenced_item_ids : [] });
@@ -2205,8 +2201,8 @@ function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDe
         </>
       ) : (
         <>
-          <strong data-label="Type">{purchase.category}</strong>
-          <span data-label="What It Is" className={`invoice-line-description${purchase.notes ? "" : " muted-placeholder"}`}><span className="invoice-line-content"><span>{purchase.notes || "No description"}</span><LineBudgetIndicator purchase={purchase} purchases={purchases} teams={teams} /></span></span>
+          <strong data-label="Type" className="invoice-line-type" title={budgetTooltip} tabIndex="0">{purchase.category}</strong>
+          <span data-label="What It Is" className={`invoice-line-description${purchase.notes ? "" : " muted-placeholder"}`}>{purchase.notes || "No description"}</span>
           <span data-label="Qty">{purchase.quantity || 1}</span>
           <span data-label="Unit Price">{currencyMoney(purchase.original_amount, purchase.currency)}</span>
           <strong data-label="Line Total">{currencyMoney((purchase.quantity || 1) * purchase.original_amount, purchase.currency)}</strong>
