@@ -96,7 +96,7 @@ npm run build
 
 ## Deploy To Vercel With Supabase
 
-This repository is configured for Vercel hosting through `vercel.json`. Vercel serves the React/Vite frontend and routes `/api/*` to the FastAPI app in `app.py`.
+This repository is configured for Vercel hosting through `vercel.json`. Vite builds the React frontend into `public/`, which Vercel serves through its CDN, while application and API routes are handled by the FastAPI app in `backend/main.py`.
 
 Important: use Supabase Postgres or another hosted Postgres database for production. Do not use SQLite on Vercel because serverless file storage is temporary. Invoice PDFs are stored in the database with their invoice records and are limited to 10 MB each.
 
@@ -159,7 +159,7 @@ DATABASE_URL=postgresql://postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supa
 ```text
 Install Command: python -m pip install -r requirements.txt && cd frontend && npm install
 Build Command: cd frontend && npm run build
-Output Directory: frontend/dist
+Static Directory: public
 ```
 
 These are already defined in `vercel.json`.

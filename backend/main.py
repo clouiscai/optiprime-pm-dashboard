@@ -24,7 +24,9 @@ app = FastAPI(
     openapi_url=None if is_production else "/openapi.json",
 )
 ROOT = Path(__file__).resolve().parents[1]
-FRONTEND_DIST = ROOT / "frontend" / "dist"
+PUBLIC_DIR = ROOT / "public"
+LEGACY_FRONTEND_DIST = ROOT / "frontend" / "dist"
+FRONTEND_DIST = PUBLIC_DIR if PUBLIC_DIR.exists() else LEGACY_FRONTEND_DIST
 
 allowed_origins = [
     "http://localhost:5173",

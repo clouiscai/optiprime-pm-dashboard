@@ -9,6 +9,6 @@ Remove-Item Env:\VITE_API_URL -ErrorAction SilentlyContinue
 npm run build
 
 Write-Host ""
-Write-Host "Frontend built into frontend/dist."
+Write-Host "Frontend built into public/."
 Write-Host "The backend can now serve the whole app from one URL."
 Write-Host ""
