@@ -19,3 +19,27 @@ alter default privileges in schema public
   grant select, insert, update, delete on tables to optiprime_runtime;
 alter default privileges in schema public
   grant usage, select on sequences to optiprime_runtime;
+
+-- RLS remains enabled. Only the private backend login receives row access.
+do $$
+declare
+  table_record record;
+begin
+  for table_record in
+    select schemaname, tablename
+    from pg_tables
+    where schemaname = 'public'
+  loop
+    execute format(
+      'drop policy if exists optiprime_runtime_access on %I.%I',
+      table_record.schemaname,
+      table_record.tablename
+    );
+    execute format(
+      'create policy optiprime_runtime_access on %I.%I for all to optiprime_runtime using (true) with check (true)',
+      table_record.schemaname,
+      table_record.tablename
+    );
+  end loop;
+end
+$$;

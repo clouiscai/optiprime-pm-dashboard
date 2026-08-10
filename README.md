@@ -131,6 +131,10 @@ Use the real password from Supabase. Do not commit it.
 
 Do not use the Supabase Next.js quickstart for this app. That guide asks you to install `@supabase/supabase-js`, `@supabase/ssr`, and create `page.tsx` / `utils/supabase/*.ts` files. This project is not Next.js; it is React/Vite plus FastAPI. Supabase is used as the Postgres database behind FastAPI through `DATABASE_URL`.
 
+### Secure the Supabase Data API
+
+This app does not query Supabase REST or GraphQL from the browser. After creating or migrating the schema, open the Supabase SQL Editor and run `database/harden_supabase.sql` as the project owner. The script enables Row-Level Security on every table, removes Data API access from `anon`, `authenticated`, and `service_role`, and updates owner defaults so new tables are not exposed automatically. Re-run it after any manual schema import. Maintainers can verify the result with `python scripts/apply_supabase_hardening.py path/to/private-production.env` or an existing `DATABASE_URL` environment variable; never commit that environment file.
+
 You do not need these Vercel variables for the current app:
 
 ```text
@@ -276,7 +280,7 @@ For production:
 - rotate passwords and database credentials whenever they are shared outside the password manager
 - use a least-privileged PostgreSQL role instead of the Supabase `postgres` owner account
 
-To create the restricted Supabase runtime role, review and run `database/create_runtime_role.sql` in the Supabase SQL Editor. Then change Vercel's `DATABASE_URL` username to `optiprime_runtime`, set `OPTIPRIME_SKIP_STARTUP_DB=true`, and redeploy. Schema migrations must be run separately with the database-owner account before deploying code that changes tables.
+To create the restricted Supabase runtime role, first run `database/harden_supabase.sql`, then review and run `database/create_runtime_role.sql` in the Supabase SQL Editor. The runtime script grants table access and creates RLS policies only for the private backend role. Then change Vercel's `DATABASE_URL` username to `optiprime_runtime`, set `OPTIPRIME_SKIP_STARTUP_DB=true`, and redeploy. Schema migrations must be run separately with the database-owner account before deploying code that changes tables.
 
 ## Security Checklist Before Sharing
 

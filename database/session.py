@@ -268,6 +268,8 @@ def run_postgres_migrations():
         )
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_budget_log_teams_team_id ON budget_log_teams (team_id)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_budget_log_references_target_log_id ON budget_log_references (target_log_id)"))
+        connection.execute(text("ALTER TABLE budget_log_teams ENABLE ROW LEVEL SECURITY"))
+        connection.execute(text("ALTER TABLE budget_log_references ENABLE ROW LEVEL SECURITY"))
         connection.execute(text("UPDATE invoices SET vendor = 'Unassigned Vendor' WHERE BTRIM(COALESCE(vendor, '')) = ''"))
         connection.execute(text("UPDATE invoices SET invoice_number = 'INV-' || id::text WHERE BTRIM(COALESCE(invoice_number, '')) = ''"))
         connection.execute(text("UPDATE invoices SET team_id = NULL WHERE team_id IS NOT NULL"))
