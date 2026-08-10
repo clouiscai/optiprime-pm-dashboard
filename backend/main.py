@@ -100,9 +100,10 @@ def root():
 
 app.include_router(router, prefix="/api")
 
-assets_dir = FRONTEND_DIST / "assets"
-if assets_dir.exists():
-    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+for assets_name in ("assets", "static-v2"):
+    assets_dir = FRONTEND_DIST / assets_name
+    if assets_dir.exists():
+        app.mount(f"/{assets_name}", StaticFiles(directory=assets_dir), name=assets_name)
 
 
 @app.get("/{path:path}", include_in_schema=False)
