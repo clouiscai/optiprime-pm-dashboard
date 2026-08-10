@@ -180,7 +180,6 @@ OPTIPRIME_VIEWER_TOKEN=replace-with-a-different-long-random-token
 OPTIPRIME_VIEWER_USERNAME=replace-with-viewer-username
 OPTIPRIME_VIEWER_PASSWORD=replace-with-viewer-password
 FRONTEND_ORIGINS=https://your-vercel-project.vercel.app
-VITE_API_URL=https://your-vercel-project.vercel.app/api
 VITE_ENABLE_REALTIME=false
 ```
 
@@ -221,7 +220,7 @@ After Vercel deploys:
 4. Log in with the admin credentials.
 5. Confirm Dashboard, Tasks, BOM, Finance, Sponsors, and Equipments/Asset load.
 
-If login fails, check that `VITE_API_URL` ends with `/api`, `DATABASE_URL` is the Supabase Postgres URL, and `FRONTEND_ORIGINS` matches the Vercel domain.
+If login fails, check that `DATABASE_URL` is the Supabase Postgres URL and `FRONTEND_ORIGINS` matches the Vercel domain. The frontend uses the same deployment origin under `/api` automatically.
 
 ### 5. Existing Local Data
 

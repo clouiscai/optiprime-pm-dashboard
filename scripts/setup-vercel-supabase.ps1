@@ -75,7 +75,6 @@ if ($DatabaseUrl -notmatch "sslmode=require") {
 }
 
 $VercelUrl = $VercelUrl.TrimEnd("/")
-$ApiUrl = "$VercelUrl/api"
 
 if (-not (Get-Command npx -ErrorAction SilentlyContinue)) {
   throw "npx was not found. Install Node.js first, then rerun this script."
@@ -111,7 +110,6 @@ Set-VercelEnv "OPTIPRIME_SESSION_SECRET" $SessionSecret
 Set-VercelEnv "OPTIPRIME_SESSION_MINUTES" "120"
 Set-VercelEnv "OPTIPRIME_ALLOW_STATIC_TOKENS" "false"
 Set-VercelEnv "FRONTEND_ORIGINS" $VercelUrl
-Set-VercelEnv "VITE_API_URL" $ApiUrl
 Set-VercelEnv "VITE_ENABLE_REALTIME" "false"
 
 Write-Host ""
