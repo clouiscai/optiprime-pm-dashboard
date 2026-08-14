@@ -142,6 +142,11 @@ class BudgetLog(Base):
     date: Mapped[date] = mapped_column(Date, nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="")
     sponsored_by: Mapped[str] = mapped_column(String(160), default="")
+    adjustment_mode: Mapped[str] = mapped_column(String(20), default="amount")
+    adjustment_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    inventory_category: Mapped[str] = mapped_column(String(40), default="Unsorted")
+    inventory_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    inventory_note: Mapped[str] = mapped_column(String(220), default="")
 
     project: Mapped[Project] = relationship(back_populates="budget_logs")
     team: Mapped[Team | None] = relationship(back_populates="budget_logs")

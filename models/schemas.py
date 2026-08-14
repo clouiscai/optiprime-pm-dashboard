@@ -211,6 +211,11 @@ class BudgetLogBase(BaseModel):
     date: DateType
     notes: str = ""
     sponsored_by: str = ""
+    adjustment_mode: str = Field(default="amount", pattern="^(amount|percentage)$")
+    adjustment_rate: float = Field(default=0, ge=0)
+    inventory_category: str = Field(default="Unsorted", max_length=40)
+    inventory_available: bool = True
+    inventory_note: str = Field(default="", max_length=220)
 
 
 class BudgetLogCreate(BudgetLogBase):
@@ -230,6 +235,11 @@ class BudgetLogUpdate(BaseModel):
     date: DateType | None = None
     notes: str | None = None
     sponsored_by: str | None = None
+    adjustment_mode: str | None = Field(default=None, pattern="^(amount|percentage)$")
+    adjustment_rate: float | None = Field(default=None, ge=0)
+    inventory_category: str | None = Field(default=None, max_length=40)
+    inventory_available: bool | None = None
+    inventory_note: str | None = Field(default=None, max_length=220)
 
 
 class BudgetLogRead(BudgetLogBase):
@@ -248,6 +258,8 @@ class InvoicePurchaseCreate(BaseModel):
     notes: str = ""
     team_ids: list[int] = Field(default_factory=list)
     referenced_item_ids: list[int] = Field(default_factory=list)
+    adjustment_mode: str = Field(default="amount", pattern="^(amount|percentage)$")
+    adjustment_rate: float = Field(default=0, ge=0)
 
 
 class InvoiceUpdate(BaseModel):

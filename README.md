@@ -110,9 +110,11 @@ Finance records follow this hierarchy:
 2. Invoice number and PDF
 3. Purchase lines under that invoice, including materials, shipping, tax, fees, and services
 
-Invoice headers store the vendor, invoice number, date, base currency, SGD exchange rate, sponsorship status, sponsor name, description, and PDF. Spending is assigned on each purchase line rather than on the invoice header. A normal line can be assigned to one team, shared equally by several selected teams, or left as General to use unallocated project funds. Tax and discount lines reference one or more item lines; their value is distributed proportionally by the referenced items' SGD totals and inherits those items' team allocations. This keeps shared shipping, tax, and discounts attributable without duplicating invoice totals.
+Invoice headers store the vendor, invoice number, date, base currency, SGD exchange rate, sponsorship status, sponsor name, description, and PDF. Spending is assigned on each purchase line rather than on the invoice header. A normal line can be assigned to one team, shared equally by several selected teams, or left as General to use unallocated project funds. Tax and discount lines reference one, several, or all item lines; their value is distributed proportionally by the referenced items' SGD totals and inherits those items' team allocations. This keeps shared tax and discounts attributable without duplicating invoice totals.
 
-Each purchase line records what the charge is, its type (such as item, shipping, tax, fee, discount, or service), quantity, and unit price in the invoice base currency. Line totals are quantity multiplied by unit price and then converted to SGD. Discounts can be entered as negative unit prices. Actual spending is calculated only from non-sponsored invoice purchase lines, not from the invoice header or legacy standalone expenses. An invoice PDF can be replaced or removed without deleting the invoice and its purchase lines.
+Each purchase line records what the charge is, its type (such as item, material, service, shipping, tax, fee, or discount), quantity, and unit price in the invoice base currency. Line totals are quantity multiplied by unit price and then converted to SGD. Tax and discount lines can use either a fixed amount or a percentage of their referenced items. Discounts are normalized as deductions automatically. Actual spending is calculated only from non-sponsored invoice purchase lines, not from the invoice header or legacy standalone expenses. An invoice PDF can be replaced or removed without deleting the invoice and its purchase lines.
+
+The Inventory tab is generated from physical invoice purchase lines, so quantities stay synchronized with Spending. Purchased items can be dragged between Unsorted, Equipment, Tools, Assets, Consumables, and Utilities. Non-consumable entries can be marked out of service and given a short status note.
 
 ### 1. Create Supabase Database
 
@@ -218,7 +220,7 @@ After Vercel deploys:
 2. Confirm it returns `{"ok":true}`.
 3. Open the Vercel app URL.
 4. Log in with the admin credentials.
-5. Confirm Dashboard, Tasks, BOM, Finance, Sponsors, and Equipments/Asset load.
+5. Confirm Dashboard, Tasks, BOM, Spending, Inventory, Sponsors, and Members load.
 
 If login fails, check that `DATABASE_URL` is the Supabase Postgres URL and `FRONTEND_ORIGINS` matches the Vercel domain. The frontend uses the same deployment origin under `/api` automatically.
 

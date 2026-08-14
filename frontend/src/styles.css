@@ -1040,6 +1040,11 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.reference-options .reference-all-option {
+  background: #f6f8fa;
+  border-style: dashed;
+}
+
 .empty-reference-note {
   color: var(--op-muted);
   font-size: 12px;
@@ -1079,6 +1084,24 @@ h2 {
 
 .invoice-purchase-row:hover {
   background: #fff7f7;
+}
+
+.invoice-purchase-row.line-discount {
+  background: #fff1f2;
+  box-shadow: inset 3px 0 0 #dc3545;
+}
+
+.invoice-purchase-row.line-discount:hover {
+  background: #ffe4e6;
+}
+
+.invoice-purchase-row.line-overhead {
+  background: #f3f4f6;
+  box-shadow: inset 3px 0 0 #9ca3af;
+}
+
+.invoice-purchase-row.line-overhead:hover {
+  background: #e9edf1;
 }
 
 .invoice-purchase-row > * {
@@ -1466,6 +1489,173 @@ h2 {
   align-self: end;
   min-height: 36px;
   white-space: nowrap;
+}
+
+.inventory-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(240px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.inventory-lane {
+  min-width: 0;
+  padding: 0 10px 10px;
+  border-top: 3px solid #8b95a3;
+  background: #f3f5f7;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.inventory-lane.drop-target {
+  border-color: var(--op-coral);
+  background: #fff1f2;
+}
+
+.inventory-lane > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+}
+
+.inventory-lane > header h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.inventory-lane > header span {
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #dfe4e9;
+  color: #4b5563;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.inventory-lane-items {
+  display: grid;
+  gap: 8px;
+  min-height: 62px;
+}
+
+.inventory-empty {
+  align-self: center;
+  color: #8b95a3;
+  font-size: 12px;
+  text-align: center;
+}
+
+.inventory-item {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid #d4dbe2;
+  border-radius: 6px;
+  background: #ffffff;
+  transition: border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+}
+
+.inventory-item.draggable {
+  cursor: grab;
+}
+
+.inventory-item.draggable:active {
+  cursor: grabbing;
+}
+
+.inventory-item:hover {
+  border-color: #9aa4b0;
+  box-shadow: 0 3px 10px rgba(31, 35, 41, 0.08);
+}
+
+.inventory-item.unavailable {
+  border-color: #d4a3a8;
+  background: #f5e9ea;
+}
+
+.inventory-item-main,
+.inventory-item-meta,
+.inventory-item-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.inventory-item-main > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.inventory-item-main span,
+.inventory-item-meta {
+  color: var(--op-muted);
+  font-size: 11px;
+}
+
+.inventory-item-main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inventory-item-main b {
+  flex: 0 0 auto;
+  min-width: 30px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: #eef1f4;
+  text-align: center;
+}
+
+.inventory-item-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inventory-item-controls select,
+.inventory-state {
+  min-height: 32px;
+  font-size: 12px;
+}
+
+.inventory-item-controls select {
+  min-width: 0;
+  width: 48%;
+}
+
+.inventory-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.inventory-state i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #198754;
+}
+
+.inventory-state.inactive i {
+  background: #b4232f;
+}
+
+.inventory-note {
+  width: 100%;
+  min-height: 32px;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
 }
 
 .locked-field {
@@ -3552,5 +3742,34 @@ progress {
     grid-template-columns: minmax(90px, 140px) auto;
     width: 100%;
     margin-left: 0;
+  }
+}
+
+@media (max-width: 1180px) {
+  .inventory-board {
+    grid-template-columns: repeat(2, minmax(230px, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .inventory-board {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .inventory-lane {
+    padding-inline: 8px;
+  }
+
+  .inventory-lane-items {
+    min-height: 48px;
+  }
+
+  .inventory-item-controls {
+    align-items: stretch;
+  }
+
+  .inventory-item-controls select {
+    width: 50%;
   }
 }

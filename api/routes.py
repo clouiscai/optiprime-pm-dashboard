@@ -59,7 +59,7 @@ from models.schemas import (
 )
 from services.auth import account_for_credentials, expected_username, require_token, require_websocket_token, require_write_token, role_for_token, session_for_token
 from services.calculations import project_dashboard, task_with_open_blockers
-from services.finance import is_adjustment_category, project_purchase_allocations, purchase_allocation_weights
+from services.finance import is_adjustment_category, is_discount_category, project_purchase_allocations, purchase_allocation_weights
 from services.realtime import manager
 
 
@@ -141,10 +141,14 @@ def configure_purchase_scope(
 
     if adjustment and not normalized_references:
         raise HTTPException(400, "Tax and discount lines must reference at least one invoice item")
+    if adjustment and purchase.adjustment_mode == "percentage" and purchase.adjustment_rate <= 0:
+        raise HTTPException(400, "Percentage adjustments require a rate greater than zero")
     if adjustment and validated_team_ids:
         raise HTTPException(400, "Tax and discount team allocation is inherited from the referenced items")
     if not adjustment and normalized_references:
         raise HTTPException(400, "Only tax and discount lines can reference invoice items")
+    if not adjustment and purchase.adjustment_mode != "amount":
+        raise HTTPException(400, "Only tax and discount lines can use percentage mode")
 
     if normalized_references:
         targets = (
@@ -201,16 +205,47 @@ def amount_in_sgd(original_amount: float, exchange_rate_to_sgd: float) -> float:
 
 
 def refresh_invoice_totals(db: Session, invoice: Invoice) -> None:
-    original_total, sgd_total = (
-        db.query(
-            func.coalesce(func.sum(BudgetLog.quantity * BudgetLog.original_amount), 0),
-            func.coalesce(func.sum(BudgetLog.amount), 0),
-        )
+    db.flush()
+    purchases = (
+        db.query(BudgetLog)
+        .options(joinedload(BudgetLog.reference_links))
         .filter(BudgetLog.invoice_id == invoice.id)
-        .one()
+        .order_by(BudgetLog.id)
+        .all()
     )
-    invoice.original_amount = round(float(original_total or 0), 2)
-    invoice.amount_sgd = round(float(sgd_total or 0), 2)
+    purchases_by_id = {purchase.id: purchase for purchase in purchases}
+
+    for purchase in purchases:
+        adjustment = is_adjustment_category(purchase.category)
+        if adjustment and purchase.adjustment_mode == "percentage":
+            referenced_total = sum(
+                abs(target.quantity * target.original_amount)
+                for target_id in purchase.referenced_item_ids
+                if (target := purchases_by_id.get(target_id)) is not None
+                and not is_adjustment_category(target.category)
+            )
+            computed_total = round(referenced_total * abs(purchase.adjustment_rate) / 100, 2)
+            purchase.quantity = 1
+            purchase.original_amount = -computed_total if is_discount_category(purchase.category) else computed_total
+        elif adjustment:
+            purchase.adjustment_mode = "amount"
+            purchase.adjustment_rate = 0
+            purchase.original_amount = (
+                -abs(purchase.original_amount)
+                if is_discount_category(purchase.category)
+                else abs(purchase.original_amount)
+            )
+        else:
+            purchase.adjustment_mode = "amount"
+            purchase.adjustment_rate = 0
+
+        purchase.amount = amount_in_sgd(
+            purchase.original_amount * purchase.quantity,
+            purchase.exchange_rate_to_sgd,
+        )
+
+    invoice.original_amount = round(sum(purchase.quantity * purchase.original_amount for purchase in purchases), 2)
+    invoice.amount_sgd = round(sum(purchase.amount for purchase in purchases), 2)
 
 
 def validate_invoice_identity(
@@ -1093,7 +1128,6 @@ async def update_invoice(invoice_id: int, payload: InvoiceUpdate, _: Writable, d
     for purchase in invoice.purchases:
         purchase.currency = invoice.currency
         purchase.exchange_rate_to_sgd = invoice.exchange_rate_to_sgd
-        purchase.amount = amount_in_sgd(purchase.original_amount * purchase.quantity, invoice.exchange_rate_to_sgd)
         if invoice.invoice_date:
             purchase.date = invoice.invoice_date
         purchase.sponsored_by = invoice.sponsored_by
@@ -1132,6 +1166,8 @@ async def create_invoice_purchase(
         date=invoice.invoice_date or DateType.today(),
         notes=payload.notes.strip(),
         sponsored_by=invoice.sponsored_by,
+        adjustment_mode=payload.adjustment_mode,
+        adjustment_rate=payload.adjustment_rate,
     )
     db.add(purchase)
     db.flush()

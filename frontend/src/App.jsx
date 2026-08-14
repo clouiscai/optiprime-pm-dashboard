@@ -5,7 +5,7 @@ import { REALTIME_ENABLED, apiFetch, downloadCsv, getApiBase, getWsUrl } from ".
 const navigationGroups = [
   { label: "", tabs: ["Dashboard"] },
   { label: "Timelines", tabs: ["Tasks", "Kanban", "Gantt"] },
-  { label: "Finance", tabs: ["BOM", "Equipment/Asset", "Spending"] },
+  { label: "Finance", tabs: ["BOM", "Spending", "Inventory"] },
   { label: "Partners", tabs: ["Sponsors", "Members"] },
 ];
 const statusColumns = [
@@ -21,6 +21,7 @@ const teamColors = {
   General: "#64748b",
 };
 const commonCurrencies = ["SGD", "USD", "EUR", "GBP", "JPY", "CNY", "AUD", "CAD", "CHF", "HKD", "MYR", "NZD", "THB", "TWD"];
+const inventoryCategories = ["Unsorted", "Equipment", "Tools", "Assets", "Consumables", "Utilities"];
 
 const today = new Date().toISOString().slice(0, 10);
 const dayMs = 24 * 60 * 60 * 1000;
@@ -98,7 +99,40 @@ function teamName(teams, id) {
 
 function isInvoiceAdjustment(category) {
   const words = new Set((category || "").trim().toLocaleLowerCase().replaceAll("-", " ").replaceAll("_", " ").split(/\s+/));
-  return ["tax", "taxes", "gst", "vat", "discount", "discounts"].some((word) => words.has(word));
+  return ["tax", "taxes", "gst", "vat", "discount", "discounts", "rebate", "rebates"].some((word) => words.has(word));
+}
+
+function isInvoiceDiscount(category) {
+  const words = new Set((category || "").trim().toLocaleLowerCase().replaceAll("-", " ").replaceAll("_", " ").split(/\s+/));
+  return ["discount", "discounts", "rebate", "rebates"].some((word) => words.has(word));
+}
+
+function invoiceLineTone(category) {
+  if (isInvoiceDiscount(category)) return " line-discount";
+  const words = new Set((category || "").trim().toLocaleLowerCase().replaceAll("-", " ").replaceAll("_", " ").split(/\s+/));
+  return ["tax", "taxes", "gst", "vat", "shipping", "freight", "fee", "fees", "duty", "handling"].some((word) => words.has(word))
+    ? " line-overhead"
+    : "";
+}
+
+function isInventoryPurchase(category) {
+  if (isInvoiceAdjustment(category)) return false;
+  const words = new Set((category || "").trim().toLocaleLowerCase().replaceAll("-", " ").replaceAll("_", " ").split(/\s+/));
+  return !["shipping", "freight", "fee", "fees", "duty", "handling", "service", "services", "labour", "labor"].some((word) => words.has(word));
+}
+
+function invoiceDraftLineTotal(draft, purchases) {
+  if (isInvoiceAdjustment(draft.category) && draft.adjustment_mode === "percentage") {
+    const selected = new Set((draft.referenced_item_ids || []).map(Number));
+    const base = purchases
+      .filter((purchase) => selected.has(purchase.id))
+      .reduce((total, purchase) => total + Math.abs(Number(purchase.quantity || 1) * Number(purchase.original_amount || 0)), 0);
+    const total = base * Math.abs(Number(draft.adjustment_rate || 0)) / 100;
+    return isInvoiceDiscount(draft.category) ? -total : total;
+  }
+  const total = Number(draft.quantity || 0) * Number(draft.original_amount || 0);
+  if (!isInvoiceAdjustment(draft.category)) return total;
+  return isInvoiceDiscount(draft.category) ? -Math.abs(total) : Math.abs(total);
 }
 
 function invoiceTeamIds(invoice) {
@@ -262,8 +296,8 @@ export default function App() {
       if (normalizedScope === "Spending") {
         requests.invoices = apiFetch(`/projects/${projectId}/invoices${query}`, token);
       }
-      if (normalizedScope === "Equipment/Asset") {
-        requests.assets = apiFetch(`/projects/${projectId}/assets${query}`, token);
+      if (normalizedScope === "Inventory") {
+        requests.invoices = apiFetch(`/projects/${projectId}/invoices${query}`, token);
       }
       if (normalizedScope === "Sponsors") {
         requests.sponsors = apiFetch(`/projects/${projectId}/sponsors`, token);
@@ -597,14 +631,13 @@ export default function App() {
               onRefresh={refresh}
             />
           )}
-          {activeTab === "Equipment/Asset" && (
-            <Assets
+          {activeTab === "Inventory" && (
+            <Inventory
               projectId={projectId}
-              teamId={scopedTeamId}
               selectedTeam={selectedTeam}
               token={token}
               teams={data.teams}
-              assets={data.assets}
+              invoices={data.invoices}
               canEdit={canEdit}
               onRefresh={refresh}
             />
@@ -1610,11 +1643,11 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
   const currencyOptions = useMemo(() => [...new Set([...commonCurrencies, ...invoices.map((invoice) => invoice.currency).filter(Boolean)])].sort(), [invoices]);
   const lineTypeOptions = useMemo(() => [...new Set([
     "Item",
-    "Materials",
+    "Material",
+    "Service",
     "Shipping",
     "Tax",
-    "Fees",
-    "Services",
+    "Fee",
     "Discount",
     ...invoices.flatMap((invoice) => (invoice.purchases || []).map((purchase) => purchase.category)).filter(Boolean),
   ])].sort(), [invoices]);
@@ -1937,6 +1970,8 @@ function TeamAllocationPicker({ teams, value, onChange }) {
 
 function InvoiceReferencePicker({ purchases, value, onChange }) {
   const selected = new Set((value || []).map(Number));
+  const allIds = purchases.map((purchase) => purchase.id);
+  const allSelected = allIds.length > 0 && allIds.every((itemId) => selected.has(itemId));
 
   function toggleItem(itemId) {
     const next = new Set(selected);
@@ -1949,6 +1984,12 @@ function InvoiceReferencePicker({ purchases, value, onChange }) {
     <fieldset className="line-scope-picker reference-picker">
       <legend>Apply To Items</legend>
       <div className="line-scope-options reference-options">
+        {purchases.length > 0 && (
+          <label className={`line-scope-option reference-all-option${allSelected ? " selected" : ""}`}>
+            <input type="checkbox" checked={allSelected} onChange={() => onChange(allSelected ? [] : allIds)} />
+            <strong>All</strong>
+          </label>
+        )}
         {purchases.map((purchase) => (
           <label className={`line-scope-option${selected.has(purchase.id) ? " selected" : ""}`} key={purchase.id}>
             <input type="checkbox" checked={selected.has(purchase.id)} onChange={() => toggleItem(purchase.id)} />
@@ -1969,7 +2010,7 @@ function lineBudgetTooltip(purchase, purchases, teams) {
 }
 
 function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAddPurchase, onPatchPurchase, onDeletePurchase, onReplacePdf, onDeletePdf }) {
-  const newPurchaseDraft = () => ({ category: "Item", quantity: 1, original_amount: "", notes: "", team_ids: [], referenced_item_ids: [] });
+  const newPurchaseDraft = () => ({ category: "Item", quantity: 1, original_amount: "", adjustment_mode: "amount", adjustment_rate: "", notes: "", team_ids: [], referenced_item_ids: [] });
   const [purchaseDraft, setPurchaseDraft] = useState(newPurchaseDraft);
   const [replacementPdf, setReplacementPdf] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -2004,7 +2045,12 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
 
   async function addPurchase(event) {
     event.preventDefault();
-    if (!purchaseDraft.category.trim() || purchaseDraft.original_amount === "") return;
+    if (!purchaseDraft.category.trim()) return;
+    if (purchaseDraftIsAdjustment && purchaseDraft.adjustment_mode === "percentage" && Number(purchaseDraft.adjustment_rate) <= 0) {
+      window.alert("Enter a percentage greater than zero.");
+      return;
+    }
+    if (purchaseDraft.adjustment_mode !== "percentage" && purchaseDraft.original_amount === "") return;
     if (Number(purchaseDraft.quantity) <= 0) {
       window.alert("Quantity must be greater than zero.");
       return;
@@ -2016,7 +2062,9 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
     await onAddPurchase(invoice.id, {
       category: purchaseDraft.category.trim(),
       quantity: Number(purchaseDraft.quantity),
-      original_amount: Number(purchaseDraft.original_amount),
+      original_amount: purchaseDraftIsAdjustment && purchaseDraft.adjustment_mode === "percentage" ? 0 : Number(purchaseDraft.original_amount),
+      adjustment_mode: purchaseDraftIsAdjustment ? purchaseDraft.adjustment_mode : "amount",
+      adjustment_rate: purchaseDraftIsAdjustment && purchaseDraft.adjustment_mode === "percentage" ? Number(purchaseDraft.adjustment_rate) : 0,
       notes: purchaseDraft.notes.trim(),
       team_ids: purchaseDraftIsAdjustment ? [] : purchaseDraft.team_ids,
       referenced_item_ids: purchaseDraftIsAdjustment ? purchaseDraft.referenced_item_ids : [],
@@ -2109,11 +2157,19 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
           <label className="compact-field"><span>Type</span><input list="invoice-purchase-categories" value={purchaseDraft.category} onChange={(event) => {
             const category = event.target.value;
             const adjustment = isInvoiceAdjustment(category);
-            setPurchaseDraft({ ...purchaseDraft, category, team_ids: adjustment ? [] : purchaseDraft.team_ids, referenced_item_ids: adjustment ? purchaseDraft.referenced_item_ids : [] });
+            setPurchaseDraft({ ...purchaseDraft, category, quantity: adjustment ? 1 : purchaseDraft.quantity, adjustment_mode: adjustment ? purchaseDraft.adjustment_mode : "amount", team_ids: adjustment ? [] : purchaseDraft.team_ids, referenced_item_ids: adjustment ? purchaseDraft.referenced_item_ids : [] });
           }} /></label>
           <label className="compact-field purchase-description-field"><span>What It Is</span><input placeholder="Item, shipping, tax, fee..." value={purchaseDraft.notes} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, notes: event.target.value })} /></label>
-          <label className="compact-field"><span>Quantity</span><input type="number" min="0.000001" step="any" value={purchaseDraft.quantity} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, quantity: event.target.value })} /></label>
-          <label className="compact-field"><span>Unit Price ({invoice.currency})</span><input type="number" step="0.01" value={purchaseDraft.original_amount} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, original_amount: event.target.value })} /></label>
+          {purchaseDraftIsAdjustment ? (
+            <label className="compact-field"><span>Method</span><select value={purchaseDraft.adjustment_mode} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, adjustment_mode: event.target.value })}><option value="amount">Amount</option><option value="percentage">Percent</option></select></label>
+          ) : (
+            <label className="compact-field"><span>Quantity</span><input type="number" min="0.000001" step="any" value={purchaseDraft.quantity} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, quantity: event.target.value })} /></label>
+          )}
+          {purchaseDraftIsAdjustment && purchaseDraft.adjustment_mode === "percentage" ? (
+            <label className="compact-field"><span>Rate (%)</span><input type="number" min="0.000001" step="any" value={purchaseDraft.adjustment_rate} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, adjustment_rate: event.target.value })} /></label>
+          ) : (
+            <label className="compact-field"><span>{purchaseDraftIsAdjustment ? "Amount" : "Unit Price"} ({invoice.currency})</span><input type="number" step="0.01" value={purchaseDraft.original_amount} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, original_amount: event.target.value })} /></label>
+          )}
           <button>Add Line</button>
           {purchaseDraftIsAdjustment && (
             <div className="purchase-allocation-field">
@@ -2138,10 +2194,10 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
 
 function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDelete }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({ category: purchase.category, quantity: purchase.quantity || 1, original_amount: purchase.original_amount, notes: purchase.notes || "", team_ids: purchase.team_ids || [], referenced_item_ids: purchase.referenced_item_ids || [] });
+  const [draft, setDraft] = useState({ category: purchase.category, quantity: purchase.quantity || 1, original_amount: purchase.original_amount, adjustment_mode: purchase.adjustment_mode || "amount", adjustment_rate: purchase.adjustment_rate || "", notes: purchase.notes || "", team_ids: purchase.team_ids || [], referenced_item_ids: purchase.referenced_item_ids || [] });
 
   useEffect(() => {
-    setDraft({ category: purchase.category, quantity: purchase.quantity || 1, original_amount: purchase.original_amount, notes: purchase.notes || "", team_ids: purchase.team_ids || [], referenced_item_ids: purchase.referenced_item_ids || [] });
+    setDraft({ category: purchase.category, quantity: purchase.quantity || 1, original_amount: purchase.original_amount, adjustment_mode: purchase.adjustment_mode || "amount", adjustment_rate: purchase.adjustment_rate || "", notes: purchase.notes || "", team_ids: purchase.team_ids || [], referenced_item_ids: purchase.referenced_item_ids || [] });
     setEditing(false);
   }, [purchase]);
 
@@ -2152,6 +2208,7 @@ function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDe
   const allocationLabel = isInvoiceAdjustment(purchase.category)
     ? `Applied to: ${referencedItems.map((item) => item.notes || item.category).join(", ") || "No item selected"}`
     : teamAllocationLabel(teams, purchase.team_ids);
+  const draftLineTotal = invoiceDraftLineTotal(draft, purchases);
 
   async function save() {
     if (Number(draft.quantity) <= 0) {
@@ -2162,10 +2219,16 @@ function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDe
       window.alert("Choose at least one invoice item for this tax or discount line.");
       return;
     }
+    if (draftIsAdjustment && draft.adjustment_mode === "percentage" && Number(draft.adjustment_rate) <= 0) {
+      window.alert("Enter a percentage greater than zero.");
+      return;
+    }
     await onPatch(purchase.id, {
       category: draft.category.trim(),
       quantity: Number(draft.quantity),
-      original_amount: Number(draft.original_amount),
+      original_amount: draftIsAdjustment && draft.adjustment_mode === "percentage" ? 0 : Number(draft.original_amount),
+      adjustment_mode: draftIsAdjustment ? draft.adjustment_mode : "amount",
+      adjustment_rate: draftIsAdjustment && draft.adjustment_mode === "percentage" ? Number(draft.adjustment_rate) : 0,
       notes: draft.notes.trim(),
       team_ids: draftIsAdjustment ? [] : draft.team_ids,
       referenced_item_ids: draftIsAdjustment ? draft.referenced_item_ids : [],
@@ -2174,19 +2237,27 @@ function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDe
   }
 
   return (
-    <div className={`invoice-purchase-row${editing ? " editing" : ""}`}>
+    <div className={`invoice-purchase-row${invoiceLineTone(purchase.category)}${editing ? " editing" : ""}`}>
       {editing ? (
         <>
           <label className="mobile-line-field"><span>Type</span><input aria-label="Type" title={budgetTooltip} list="invoice-purchase-categories" value={draft.category} onChange={(event) => {
             const category = event.target.value;
             const adjustment = isInvoiceAdjustment(category);
-            setDraft({ ...draft, category, team_ids: adjustment ? [] : draft.team_ids, referenced_item_ids: adjustment ? draft.referenced_item_ids : [] });
+            setDraft({ ...draft, category, quantity: adjustment ? 1 : draft.quantity, adjustment_mode: adjustment ? draft.adjustment_mode : "amount", team_ids: adjustment ? [] : draft.team_ids, referenced_item_ids: adjustment ? draft.referenced_item_ids : [] });
           }} /></label>
           <label className="mobile-line-field invoice-line-description"><span>What It Is</span><input aria-label="What it is" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
-          <label className="mobile-line-field"><span>Qty</span><input aria-label="Quantity" type="number" min="0.000001" step="any" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} /></label>
-          <label className="mobile-line-field"><span>Unit Price</span><input aria-label="Unit price" type="number" step="0.01" value={draft.original_amount} onChange={(event) => setDraft({ ...draft, original_amount: event.target.value })} /></label>
-          <strong data-label="Line Total">{currencyMoney(Number(draft.quantity || 0) * Number(draft.original_amount || 0), purchase.currency)}</strong>
-          <strong data-label="SGD Total">{money(convertedSgd(Number(draft.quantity || 0) * Number(draft.original_amount || 0), purchase.exchange_rate_to_sgd))}</strong>
+          {draftIsAdjustment ? (
+            <label className="mobile-line-field"><span>Method</span><select aria-label="Adjustment method" value={draft.adjustment_mode} onChange={(event) => setDraft({ ...draft, adjustment_mode: event.target.value })}><option value="amount">Amount</option><option value="percentage">Percent</option></select></label>
+          ) : (
+            <label className="mobile-line-field"><span>Qty</span><input aria-label="Quantity" type="number" min="0.000001" step="any" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} /></label>
+          )}
+          {draftIsAdjustment && draft.adjustment_mode === "percentage" ? (
+            <label className="mobile-line-field"><span>Rate (%)</span><input aria-label="Percentage rate" type="number" min="0.000001" step="any" value={draft.adjustment_rate} onChange={(event) => setDraft({ ...draft, adjustment_rate: event.target.value })} /></label>
+          ) : (
+            <label className="mobile-line-field"><span>{draftIsAdjustment ? "Amount" : "Unit Price"}</span><input aria-label={draftIsAdjustment ? "Amount" : "Unit price"} type="number" step="0.01" value={draft.original_amount} onChange={(event) => setDraft({ ...draft, original_amount: event.target.value })} /></label>
+          )}
+          <strong data-label="Line Total">{currencyMoney(draftLineTotal, purchase.currency)}</strong>
+          <strong data-label="SGD Total">{money(convertedSgd(draftLineTotal, purchase.exchange_rate_to_sgd))}</strong>
           <div className="invoice-line-allocation">
             {draftIsAdjustment ? (
               <InvoiceReferencePicker purchases={referenceablePurchases} value={draft.referenced_item_ids} onChange={(referenced_item_ids) => setDraft({ ...draft, referenced_item_ids })} />
@@ -2200,8 +2271,8 @@ function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDe
         <>
           <strong data-label="Type" className="invoice-line-type" title={budgetTooltip} tabIndex="0">{purchase.category}</strong>
           <span data-label="What It Is" className={`invoice-line-description${purchase.notes ? "" : " muted-placeholder"}`}>{purchase.notes || "No description"}</span>
-          <span data-label="Qty">{purchase.quantity || 1}</span>
-          <span data-label="Unit Price">{currencyMoney(purchase.original_amount, purchase.currency)}</span>
+          <span data-label={purchase.adjustment_mode === "percentage" ? "Method" : "Qty"}>{purchase.adjustment_mode === "percentage" ? "Percent" : (purchase.quantity || 1)}</span>
+          <span data-label={purchase.adjustment_mode === "percentage" ? "Rate" : "Unit Price"}>{purchase.adjustment_mode === "percentage" ? `${Number(purchase.adjustment_rate || 0)}%` : currencyMoney(purchase.original_amount, purchase.currency)}</span>
           <strong data-label="Line Total">{currencyMoney((purchase.quantity || 1) * purchase.original_amount, purchase.currency)}</strong>
           <strong data-label="SGD Total">{money(purchase.amount)}</strong>
           <span data-label="Allocation" className="invoice-allocation-summary">{allocationLabel}</span>
@@ -2457,7 +2528,163 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
   );
 }
 
-function Assets({ projectId, teamId, selectedTeam, token, teams, assets, canEdit, onRefresh }) {
+function Inventory({ selectedTeam, token, teams, invoices, canEdit, onRefresh }) {
+  const [draggingId, setDraggingId] = useState(null);
+  const [dropCategory, setDropCategory] = useState("");
+  const selectedTeamId = selectedTeam === "master" ? null : Number(selectedTeam);
+  const purchasedItems = useMemo(() => (
+    (invoices || []).flatMap((invoice) => (
+      (invoice.purchases || [])
+        .filter((purchase) => isInventoryPurchase(purchase.category))
+        .filter((purchase) => selectedTeamId === null || (purchase.team_ids || []).map(Number).includes(selectedTeamId))
+        .map((purchase) => ({
+          ...purchase,
+          invoice_vendor: invoice.vendor,
+          invoice_number: invoice.invoice_number,
+          invoice_date: invoice.invoice_date,
+        }))
+    ))
+  ), [invoices, selectedTeamId]);
+  const unavailableCount = purchasedItems.filter((item) => item.inventory_available === false).length;
+  const classifiedCount = purchasedItems.filter((item) => item.inventory_category && item.inventory_category !== "Unsorted").length;
+  const totalQuantity = purchasedItems.reduce((total, item) => total + Number(item.quantity || 0), 0);
+
+  async function updateItem(item, patch) {
+    await apiFetch(`/budget/${item.id}`, token, { method: "PATCH", body: JSON.stringify(patch) });
+    await onRefresh("Inventory");
+  }
+
+  async function moveItem(item, category) {
+    if (!canEdit || !category || category === (item.inventory_category || "Unsorted")) return;
+    const patch = { inventory_category: category };
+    if (category === "Consumables") patch.inventory_available = true;
+    await updateItem(item, patch);
+  }
+
+  function handleDrop(event, category) {
+    event.preventDefault();
+    const item = purchasedItems.find((candidate) => candidate.id === draggingId);
+    setDropCategory("");
+    setDraggingId(null);
+    if (item) moveItem(item, category);
+  }
+
+  return (
+    <section className="stack inventory-shell">
+      <div className="metrics-grid">
+        <Metric label="Purchased Qty" value={totalQuantity} detail={`${purchasedItems.length} invoice lines`} />
+        <Metric label="Classified" value={classifiedCount} detail={`${purchasedItems.length - classifiedCount} unsorted`} />
+        <Metric label="Unavailable" value={unavailableCount} tone={unavailableCount ? "warn" : ""} />
+        <Metric label="Categories" value={inventoryCategories.length - 1} />
+      </div>
+
+      <div className="inventory-board">
+        {inventoryCategories.map((category) => {
+          const items = purchasedItems.filter((item) => (item.inventory_category || "Unsorted") === category);
+          return (
+            <section
+              className={`inventory-lane${dropCategory === category ? " drop-target" : ""}`}
+              key={category}
+              onDragOver={(event) => { if (canEdit) { event.preventDefault(); setDropCategory(category); } }}
+              onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDropCategory(""); }}
+              onDrop={(event) => handleDrop(event, category)}
+            >
+              <header>
+                <h2>{category}</h2>
+                <span>{items.length}</span>
+              </header>
+              <div className="inventory-lane-items">
+                {items.map((item) => (
+                  <InventoryItem
+                    key={item.id}
+                    item={item}
+                    teams={teams}
+                    canEdit={canEdit}
+                    onUpdate={updateItem}
+                    onMove={moveItem}
+                    onDragStart={() => setDraggingId(item.id)}
+                    onDragEnd={() => { setDraggingId(null); setDropCategory(""); }}
+                  />
+                ))}
+                {items.length === 0 && <span className="inventory-empty">Drop items here</span>}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+      {purchasedItems.length === 0 && <p className="empty-note">Purchased invoice items will appear here.</p>}
+    </section>
+  );
+}
+
+function InventoryItem({ item, teams, canEdit, onUpdate, onMove, onDragStart, onDragEnd }) {
+  const category = item.inventory_category || "Unsorted";
+  const isConsumable = category === "Consumables";
+  const available = item.inventory_available !== false;
+  const [note, setNote] = useState(item.inventory_note || "");
+
+  useEffect(() => {
+    setNote(item.inventory_note || "");
+  }, [item.inventory_note]);
+
+  async function saveNote() {
+    if (note.trim() === (item.inventory_note || "")) return;
+    await onUpdate(item, { inventory_note: note.trim() });
+  }
+
+  return (
+    <article
+      className={`inventory-item${available ? "" : " unavailable"}${canEdit ? " draggable" : ""}`}
+      draggable={canEdit}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
+      <div className="inventory-item-main">
+        <div>
+          <span>{item.category}</span>
+          <strong>{item.notes || item.category}</strong>
+        </div>
+        <b>{item.quantity || 1}</b>
+      </div>
+      <div className="inventory-item-meta">
+        <span>{teamAllocationLabel(teams, item.team_ids)}</span>
+        <span>{item.invoice_vendor} - {item.invoice_number || "NA"}</span>
+      </div>
+      <div className="inventory-item-controls">
+        <select aria-label="Inventory category" value={category} disabled={!canEdit} onChange={(event) => onMove(item, event.target.value)}>
+          {inventoryCategories.map((option) => <option value={option} key={option}>{option}</option>)}
+        </select>
+        {!isConsumable && (
+          <button
+            type="button"
+            className={`inventory-state${available ? "" : " inactive"}`}
+            aria-pressed={!available}
+            title={available ? "Mark out of service" : "Mark in service"}
+            disabled={!canEdit}
+            onClick={() => onUpdate(item, { inventory_available: !available })}
+          >
+            <i />
+            <span>{available ? "In service" : "Out of service"}</span>
+          </button>
+        )}
+      </div>
+      {!isConsumable && !available && (
+        <input
+          className="inventory-note"
+          aria-label="Status note"
+          placeholder="Status note"
+          value={note}
+          disabled={!canEdit}
+          onChange={(event) => setNote(event.target.value)}
+          onBlur={saveNote}
+          onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
+        />
+      )}
+    </article>
+  );
+}
+
+function LegacyAssets({ projectId, teamId, selectedTeam, token, teams, assets, canEdit, onRefresh }) {
   const isMaster = selectedTeam === "master";
   const defaultTeam = isMaster ? null : teamId || teams[0]?.id || null;
   const emptyDraft = {

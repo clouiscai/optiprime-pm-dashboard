@@ -149,7 +149,7 @@ class FinanceTests(unittest.TestCase):
         second = asyncio.run(
             create_invoice_purchase(
                 invoice.id,
-                InvoicePurchaseCreate(category="Discount", original_amount=-20, notes="Supplier discount", referenced_item_ids=[first.id]),
+                InvoicePurchaseCreate(category="Discount", original_amount=20, notes="Supplier discount", referenced_item_ids=[first.id]),
                 "test-token",
                 self.db,
             )
@@ -167,6 +167,7 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(second.sponsored_by, "Ocean Foundation")
         self.assertEqual(first.team_ids, [self.uav_id])
         self.assertEqual(second.team_ids, [])
+        self.assertEqual(second.original_amount, -20)
         self.assertEqual(second.referenced_item_ids, [first.id])
         self.assertEqual(first.quantity, 2)
         self.assertEqual(first.amount, 270)
@@ -274,32 +275,73 @@ class FinanceTests(unittest.TestCase):
                 self.db,
             )
         )
-        asyncio.run(
+        tax = asyncio.run(
             create_invoice_purchase(
                 invoice.id,
-                InvoicePurchaseCreate(category="Tax", original_amount=49, notes="GST", referenced_item_ids=[uav_item.id, shared_item.id]),
+                InvoicePurchaseCreate(
+                    category="Tax",
+                    original_amount=0,
+                    adjustment_mode="percentage",
+                    adjustment_rate=10,
+                    notes="GST",
+                    referenced_item_ids=[uav_item.id, shared_item.id],
+                ),
                 "test-token",
                 self.db,
             )
         )
-        asyncio.run(
+        discount = asyncio.run(
             create_invoice_purchase(
                 invoice.id,
-                InvoicePurchaseCreate(category="Discount", original_amount=-40, notes="Bundle discount", referenced_item_ids=[uav_item.id, shared_item.id]),
+                InvoicePurchaseCreate(
+                    category="Discount",
+                    original_amount=0,
+                    adjustment_mode="percentage",
+                    adjustment_rate=5,
+                    notes="Bundle discount",
+                    referenced_item_ids=[uav_item.id, shared_item.id],
+                ),
                 "test-token",
                 self.db,
             )
         )
+
+        self.assertEqual(tax.original_amount, 40)
+        self.assertEqual(tax.amount, 40)
+        self.assertEqual(discount.original_amount, -20)
+        self.assertEqual(discount.amount, -20)
 
         project = self.db.get(Project, self.project_id)
         dashboards = {
             code: project_dashboard(self.db, project, team.id)
             for code, team in teams.items()
         }
-        self.assertEqual(project_dashboard(self.db, project)["actual_spend"], 499)
-        self.assertEqual(dashboards["UAV"]["actual_spend"], 285.63)
-        self.assertEqual(dashboards["USV"]["actual_spend"], 183.37)
+        self.assertEqual(project_dashboard(self.db, project)["actual_spend"], 510)
+        self.assertEqual(dashboards["UAV"]["actual_spend"], 292.5)
+        self.assertEqual(dashboards["USV"]["actual_spend"], 187.5)
         self.assertEqual(dashboards["UUV"]["actual_spend"], 30)
+
+        asyncio.run(
+            update_budget_log(
+                shared_item.id,
+                BudgetLogUpdate(
+                    original_amount=500,
+                    inventory_category="Equipment",
+                    inventory_available=False,
+                    inventory_note="Awaiting repair",
+                ),
+                "test-token",
+                self.db,
+            )
+        )
+        self.db.refresh(tax)
+        self.db.refresh(discount)
+        self.db.refresh(shared_item)
+        self.assertEqual(tax.original_amount, 60)
+        self.assertEqual(discount.original_amount, -30)
+        self.assertEqual(shared_item.inventory_category, "Equipment")
+        self.assertFalse(shared_item.inventory_available)
+        self.assertEqual(shared_item.inventory_note, "Awaiting repair")
 
     def test_seed_does_not_reassign_general_invoice_lines(self):
         invoice = Invoice(

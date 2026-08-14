@@ -85,6 +85,11 @@ def run_sqlite_migrations():
         "budget_logs.original_amount": "ALTER TABLE budget_logs ADD COLUMN original_amount FLOAT DEFAULT 0 NOT NULL",
         "budget_logs.exchange_rate_to_sgd": "ALTER TABLE budget_logs ADD COLUMN exchange_rate_to_sgd FLOAT DEFAULT 1 NOT NULL",
         "budget_logs.invoice_id": "ALTER TABLE budget_logs ADD COLUMN invoice_id INTEGER REFERENCES invoices(id)",
+        "budget_logs.adjustment_mode": "ALTER TABLE budget_logs ADD COLUMN adjustment_mode VARCHAR(20) DEFAULT 'amount' NOT NULL",
+        "budget_logs.adjustment_rate": "ALTER TABLE budget_logs ADD COLUMN adjustment_rate FLOAT DEFAULT 0 NOT NULL",
+        "budget_logs.inventory_category": "ALTER TABLE budget_logs ADD COLUMN inventory_category VARCHAR(40) DEFAULT 'Unsorted' NOT NULL",
+        "budget_logs.inventory_available": "ALTER TABLE budget_logs ADD COLUMN inventory_available BOOLEAN DEFAULT 1 NOT NULL",
+        "budget_logs.inventory_note": "ALTER TABLE budget_logs ADD COLUMN inventory_note VARCHAR(220) DEFAULT '' NOT NULL",
         "users.team_id": "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
         "invoices.file_data": "ALTER TABLE invoices ADD COLUMN file_data TEXT DEFAULT '' NOT NULL",
         "invoices.budget_log_id": "ALTER TABLE invoices ADD COLUMN budget_log_id INTEGER REFERENCES budget_logs(id)",
@@ -234,6 +239,11 @@ def run_postgres_migrations():
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS original_amount DOUBLE PRECISION DEFAULT 0 NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS exchange_rate_to_sgd DOUBLE PRECISION DEFAULT 1 NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS invoice_id INTEGER REFERENCES invoices(id)"))
+        connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS adjustment_mode VARCHAR(20) DEFAULT 'amount' NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS adjustment_rate DOUBLE PRECISION DEFAULT 0 NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS inventory_category VARCHAR(40) DEFAULT 'Unsorted' NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS inventory_available BOOLEAN DEFAULT TRUE NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS inventory_note VARCHAR(220) DEFAULT '' NOT NULL"))
         connection.execute(text("UPDATE budget_logs SET original_amount = amount WHERE original_amount = 0 AND amount <> 0"))
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS budget_log_id INTEGER REFERENCES budget_logs(id)"))
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS invoice_date DATE"))

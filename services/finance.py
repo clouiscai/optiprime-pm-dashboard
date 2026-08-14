@@ -3,13 +3,20 @@ from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
 from models.entities import BudgetLog
 
 
-ADJUSTMENT_CATEGORIES = {"tax", "taxes", "gst", "vat", "discount", "discounts"}
+TAX_CATEGORIES = {"tax", "taxes", "gst", "vat"}
+DISCOUNT_CATEGORIES = {"discount", "discounts", "rebate", "rebates"}
+ADJUSTMENT_CATEGORIES = TAX_CATEGORIES | DISCOUNT_CATEGORIES
 
 
 def is_adjustment_category(category: str) -> bool:
     normalized = category.strip().lower().replace("-", " ").replace("_", " ")
     words = set(normalized.split())
     return bool(words & ADJUSTMENT_CATEGORIES)
+
+
+def is_discount_category(category: str) -> bool:
+    normalized = category.strip().lower().replace("-", " ").replace("_", " ")
+    return bool(set(normalized.split()) & DISCOUNT_CATEGORIES)
 
 
 def direct_allocation_weights(log: BudgetLog) -> dict[int | None, Decimal]:
