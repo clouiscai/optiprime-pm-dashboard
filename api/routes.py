@@ -237,7 +237,6 @@ def refresh_invoice_totals(db: Session, invoice: Invoice) -> None:
             )
         else:
             purchase.adjustment_mode = "amount"
-            purchase.adjustment_rate = 0
 
         purchase.amount = amount_in_sgd(
             purchase.original_amount * purchase.quantity,

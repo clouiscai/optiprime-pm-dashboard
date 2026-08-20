@@ -399,6 +399,7 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(summaries["Team Enablement"]["amount"], 25)
 
     def test_inventory_tracks_partial_out_of_service_quantity(self):
+        self.assertNotIn("inventory_unavailable_quantity", BudgetLog.__table__.columns.keys())
         item = BudgetLog(
             project_id=self.project_id,
             category="Item",

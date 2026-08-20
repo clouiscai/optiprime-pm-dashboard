@@ -2277,7 +2277,7 @@ function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDe
       quantity: Number(draft.quantity),
       original_amount: draftIsAdjustment && draft.adjustment_mode === "percentage" ? 0 : Number(draft.original_amount),
       adjustment_mode: draftIsAdjustment ? draft.adjustment_mode : "amount",
-      adjustment_rate: draftIsAdjustment && draft.adjustment_mode === "percentage" ? Number(draft.adjustment_rate) : 0,
+      adjustment_rate: draftIsAdjustment && draft.adjustment_mode === "percentage" ? Number(draft.adjustment_rate) : Number(purchase.inventory_unavailable_quantity || 0),
       notes: draft.notes.trim(),
       team_ids: draftIsAdjustment ? [] : draft.team_ids,
       referenced_item_ids: draftIsAdjustment ? draft.referenced_item_ids : [],

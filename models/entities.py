@@ -146,8 +146,15 @@ class BudgetLog(Base):
     adjustment_rate: Mapped[float] = mapped_column(Float, default=0.0)
     inventory_category: Mapped[str] = mapped_column(String(40), default="Unsorted")
     inventory_available: Mapped[bool] = mapped_column(Boolean, default=True)
-    inventory_unavailable_quantity: Mapped[float] = mapped_column(Float, default=0.0)
     inventory_note: Mapped[str] = mapped_column(String(220), default="")
+
+    @property
+    def inventory_unavailable_quantity(self) -> float:
+        return max(0.0, float(self.adjustment_rate or 0.0))
+
+    @inventory_unavailable_quantity.setter
+    def inventory_unavailable_quantity(self, value: float) -> None:
+        self.adjustment_rate = max(0.0, float(value or 0.0))
 
     project: Mapped[Project] = relationship(back_populates="budget_logs")
     team: Mapped[Team | None] = relationship(back_populates="budget_logs")
