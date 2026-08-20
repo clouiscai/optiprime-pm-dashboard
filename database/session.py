@@ -89,6 +89,7 @@ def run_sqlite_migrations():
         "budget_logs.adjustment_rate": "ALTER TABLE budget_logs ADD COLUMN adjustment_rate FLOAT DEFAULT 0 NOT NULL",
         "budget_logs.inventory_category": "ALTER TABLE budget_logs ADD COLUMN inventory_category VARCHAR(40) DEFAULT 'Unsorted' NOT NULL",
         "budget_logs.inventory_available": "ALTER TABLE budget_logs ADD COLUMN inventory_available BOOLEAN DEFAULT 1 NOT NULL",
+        "budget_logs.inventory_unavailable_quantity": "ALTER TABLE budget_logs ADD COLUMN inventory_unavailable_quantity FLOAT DEFAULT 0 NOT NULL",
         "budget_logs.inventory_note": "ALTER TABLE budget_logs ADD COLUMN inventory_note VARCHAR(220) DEFAULT '' NOT NULL",
         "users.team_id": "ALTER TABLE users ADD COLUMN team_id INTEGER REFERENCES teams(id)",
         "invoices.file_data": "ALTER TABLE invoices ADD COLUMN file_data TEXT DEFAULT '' NOT NULL",
@@ -163,6 +164,12 @@ def run_sqlite_migrations():
                 connection.execute(text(statement))
         if "budget_logs" in existing_tables:
             connection.execute(text("UPDATE budget_logs SET original_amount = amount WHERE original_amount = 0 AND amount <> 0"))
+            connection.execute(
+                text(
+                    "UPDATE budget_logs SET inventory_unavailable_quantity = quantity "
+                    "WHERE inventory_available = 0 AND inventory_unavailable_quantity = 0"
+                )
+            )
         if "invoices" in existing_tables:
             connection.execute(text("UPDATE invoices SET vendor = 'Unassigned Vendor' WHERE TRIM(COALESCE(vendor, '')) = ''"))
             connection.execute(text("UPDATE invoices SET invoice_number = 'INV-' || id WHERE TRIM(COALESCE(invoice_number, '')) = ''"))
@@ -243,8 +250,15 @@ def run_postgres_migrations():
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS adjustment_rate DOUBLE PRECISION DEFAULT 0 NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS inventory_category VARCHAR(40) DEFAULT 'Unsorted' NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS inventory_available BOOLEAN DEFAULT TRUE NOT NULL"))
+        connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS inventory_unavailable_quantity DOUBLE PRECISION DEFAULT 0 NOT NULL"))
         connection.execute(text("ALTER TABLE IF EXISTS budget_logs ADD COLUMN IF NOT EXISTS inventory_note VARCHAR(220) DEFAULT '' NOT NULL"))
         connection.execute(text("UPDATE budget_logs SET original_amount = amount WHERE original_amount = 0 AND amount <> 0"))
+        connection.execute(
+            text(
+                "UPDATE budget_logs SET inventory_unavailable_quantity = quantity "
+                "WHERE inventory_available = FALSE AND inventory_unavailable_quantity = 0"
+            )
+        )
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS budget_log_id INTEGER REFERENCES budget_logs(id)"))
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS invoice_date DATE"))
         connection.execute(text("ALTER TABLE IF EXISTS invoices ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'SGD' NOT NULL"))

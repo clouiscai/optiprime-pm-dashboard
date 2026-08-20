@@ -694,7 +694,8 @@ function Dashboard({ dashboard, teams, token, selectedTeam, canEdit, onRefresh }
   if (selectedTeam === "master") {
     teamRows.push({ id: "general", code: "General", allocation: Number(dashboard.unallocated_budget || 0), spending: Number(dashboard.unallocated_actual_spend || 0) });
   }
-  const teamScale = Math.max(1, ...teamRows.flatMap((row) => [Math.abs(row.allocation), Math.abs(row.spending)]));
+  const teamChartLimit = 35000;
+  const teamChartTicks = [0, 7000, 14000, 21000, 28000, 35000];
   const typeSummaries = dashboard.spending_type_summaries || [];
   const typeScale = Math.max(1, ...typeSummaries.map((summary) => Math.abs(Number(summary.amount || 0))));
   return (
@@ -719,16 +720,23 @@ function Dashboard({ dashboard, teams, token, selectedTeam, canEdit, onRefresh }
               <div className="team-spending-row" key={row.id} style={{ "--team-chart-color": color }}>
                 <div className="team-spending-label">
                   <strong>{row.code}</strong>
-                  <span>{money(row.spending)}</span>
                 </div>
-                <div className="team-spending-track">
-                  <i className={row.spending < 0 ? "negative" : ""} style={{ width: `${Math.min(100, (Math.abs(row.spending) / teamScale) * 100)}%` }} />
-                  <b style={{ left: `${Math.min(100, (Math.abs(row.allocation) / teamScale) * 100)}%` }} />
+                <div
+                  className="team-spending-track"
+                  data-tooltip={`Spent: ${money(row.spending)}\nAllocated: ${money(row.allocation)}`}
+                  tabIndex="0"
+                  aria-label={`${row.code}: spent ${money(row.spending)}, allocated ${money(row.allocation)}`}
+                >
+                  <i className={row.spending < 0 ? "negative" : ""} style={{ width: `${Math.min(100, (Math.abs(row.spending) / teamChartLimit) * 100)}%` }} />
+                  <b style={{ left: `${Math.min(100, (Math.abs(row.allocation) / teamChartLimit) * 100)}%` }} />
                 </div>
-                <span className="team-allocation-label">Allocated {money(row.allocation)}</span>
               </div>
             );
           })}
+          <div className="team-spending-axis" aria-hidden="true">
+            {teamChartTicks.map((tick) => <span key={tick}>{tick === 0 ? "0" : `${tick / 1000}k`}</span>)}
+          </div>
+          <p className="team-spending-axis-label">SGD</p>
         </div>
       </section>
       <section className="section-card dashboard-type-spending">
@@ -2169,7 +2177,7 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
       ) : (
         <header className="invoice-card-header">
           <div>
-            <span className="invoice-kicker">Invoice <span className={invoice.invoice_number ? "" : "muted-na"}>{invoice.invoice_number || "NA"}</span></span>
+            <span className={`invoice-kicker${invoice.invoice_number ? "" : " muted-na"}`}>{invoice.invoice_number || "NA"}</span>
             <h4>{invoice.description}</h4>
             <p>{shortDate(invoice.invoice_date || invoice.uploaded_at?.slice(0, 10))} | {invoice.has_pdf ? invoice.original_filename : "No PDF attached"}</p>
             <span className={`invoice-sponsor-status${invoice.sponsored_by ? " sponsored" : ""}`}>{invoice.sponsored_by ? `Sponsored by ${invoice.sponsored_by}` : "Not sponsored"}</span>
@@ -2569,6 +2577,7 @@ function BomRow({ item, token, teams, isMaster, canEdit, expanded, categories, h
 function Inventory({ selectedTeam, token, teams, invoices, canEdit, onRefresh }) {
   const [draggingId, setDraggingId] = useState(null);
   const [dropCategory, setDropCategory] = useState("");
+  const [serviceFilter, setServiceFilter] = useState("service");
   const selectedTeamId = selectedTeam === "master" ? null : Number(selectedTeam);
   const purchasedItems = useMemo(() => (
     (invoices || []).flatMap((invoice) => (
@@ -2578,12 +2587,15 @@ function Inventory({ selectedTeam, token, teams, invoices, canEdit, onRefresh })
         .map((purchase) => ({
           ...purchase,
           invoice_vendor: invoice.vendor,
-          invoice_number: invoice.invoice_number,
           invoice_date: invoice.invoice_date,
         }))
     ))
   ), [invoices, selectedTeamId]);
-  const unavailableCount = purchasedItems.filter((item) => item.inventory_available === false).length;
+  const unavailableQuantity = purchasedItems.reduce((total, item) => {
+    const quantity = Number(item.quantity || 0);
+    const legacyUnavailable = item.inventory_available === false && Number(item.inventory_unavailable_quantity || 0) === 0;
+    return total + Math.min(quantity, legacyUnavailable ? quantity : Number(item.inventory_unavailable_quantity || 0));
+  }, 0);
   const classifiedCount = purchasedItems.filter((item) => normalizeInventoryCategory(item.inventory_category) !== "Unsorted").length;
   const totalQuantity = purchasedItems.reduce((total, item) => total + Number(item.quantity || 0), 0);
 
@@ -2595,7 +2607,7 @@ function Inventory({ selectedTeam, token, teams, invoices, canEdit, onRefresh })
   async function moveItem(item, category) {
     if (!canEdit || !category || category === normalizeInventoryCategory(item.inventory_category)) return;
     const patch = { inventory_category: category };
-    if (category === "Consumables") patch.inventory_available = true;
+    if (category === "Consumables") patch.inventory_unavailable_quantity = 0;
     await updateItem(item, patch);
   }
 
@@ -2612,13 +2624,32 @@ function Inventory({ selectedTeam, token, teams, invoices, canEdit, onRefresh })
       <div className="metrics-grid">
         <Metric label="Purchased Qty" value={totalQuantity} detail={`${purchasedItems.length} invoice lines`} />
         <Metric label="Classified" value={classifiedCount} detail={`${purchasedItems.length - classifiedCount} unsorted`} />
-        <Metric label="Unavailable" value={unavailableCount} tone={unavailableCount ? "warn" : ""} />
+        <Metric label="Out of Service" value={unavailableQuantity} tone={unavailableQuantity ? "warn" : ""} />
         <Metric label="Categories" value={inventoryCategories.length - 1} />
       </div>
 
+      <div className="inventory-toolbar">
+        <span>Show</span>
+        <div className="inventory-filter" role="group" aria-label="Inventory service status">
+          {[
+            ["service", "In Service"],
+            ["retired", "Out of Service"],
+            ["all", "All"],
+          ].map(([value, label]) => (
+            <button type="button" className={serviceFilter === value ? "active" : ""} aria-pressed={serviceFilter === value} onClick={() => setServiceFilter(value)} key={value}>{label}</button>
+          ))}
+        </div>
+      </div>
       <div className="inventory-board">
         {inventoryCategories.map((category) => {
-          const items = purchasedItems.filter((item) => normalizeInventoryCategory(item.inventory_category) === category);
+          const categoryItems = purchasedItems.filter((item) => normalizeInventoryCategory(item.inventory_category) === category);
+          const items = categoryItems.filter((item) => {
+            const quantity = Number(item.quantity || 0);
+            const unavailable = Math.min(quantity, item.inventory_available === false && Number(item.inventory_unavailable_quantity || 0) === 0 ? quantity : Number(item.inventory_unavailable_quantity || 0));
+            if (serviceFilter === "service") return quantity - unavailable > 0;
+            if (serviceFilter === "retired") return unavailable > 0;
+            return true;
+          });
           return (
             <section
               className={`inventory-lane${dropCategory === category ? " drop-target" : ""}`}
@@ -2644,7 +2675,7 @@ function Inventory({ selectedTeam, token, teams, invoices, canEdit, onRefresh })
                     onDragEnd={() => { setDraggingId(null); setDropCategory(""); }}
                   />
                 ))}
-                {items.length === 0 && <span className="inventory-empty">Drop items here</span>}
+                {items.length === 0 && <span className="inventory-empty">No matching items</span>}
               </div>
             </section>
           );
@@ -2658,21 +2689,41 @@ function Inventory({ selectedTeam, token, teams, invoices, canEdit, onRefresh })
 function InventoryItem({ item, teams, canEdit, onUpdate, onMove, onDragStart, onDragEnd }) {
   const category = normalizeInventoryCategory(item.inventory_category);
   const isConsumable = category === "Consumables";
-  const available = item.inventory_available !== false;
+  const totalQuantity = Number(item.quantity || 0);
+  const legacyUnavailable = item.inventory_available === false && Number(item.inventory_unavailable_quantity || 0) === 0;
+  const unavailableQuantity = Math.min(totalQuantity, legacyUnavailable ? totalQuantity : Number(item.inventory_unavailable_quantity || 0));
+  const availableQuantity = Math.max(0, totalQuantity - unavailableQuantity);
+  const available = availableQuantity > 0;
   const [note, setNote] = useState(item.inventory_note || "");
+  const [unavailableDraft, setUnavailableDraft] = useState(unavailableQuantity);
 
   useEffect(() => {
     setNote(item.inventory_note || "");
   }, [item.inventory_note]);
+
+  useEffect(() => {
+    setUnavailableDraft(unavailableQuantity);
+  }, [unavailableQuantity]);
 
   async function saveNote() {
     if (note.trim() === (item.inventory_note || "")) return;
     await onUpdate(item, { inventory_note: note.trim() });
   }
 
+  async function saveUnavailableQuantity() {
+    const nextQuantity = Number(unavailableDraft);
+    if (!Number.isFinite(nextQuantity) || nextQuantity < 0 || nextQuantity > totalQuantity) {
+      window.alert(`Enter a quantity from 0 to ${totalQuantity}.`);
+      setUnavailableDraft(unavailableQuantity);
+      return;
+    }
+    if (nextQuantity === unavailableQuantity) return;
+    await onUpdate(item, { inventory_unavailable_quantity: nextQuantity });
+  }
+
   return (
     <article
-      className={`inventory-item${available ? "" : " unavailable"}${canEdit ? " draggable" : ""}`}
+      className={`inventory-item${available ? "" : " unavailable"}${available && unavailableQuantity > 0 ? " partial" : ""}${canEdit ? " draggable" : ""}`}
       draggable={canEdit}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
@@ -2686,38 +2737,24 @@ function InventoryItem({ item, teams, canEdit, onUpdate, onMove, onDragStart, on
       </div>
       <div className="inventory-item-meta">
         <span>{teamAllocationLabel(teams, item.team_ids)}</span>
-        <span>{item.invoice_vendor} - {item.invoice_number || "NA"}</span>
+        <span>{item.invoice_vendor}</span>
       </div>
       <div className="inventory-item-controls">
         <select aria-label="Inventory category" value={category} disabled={!canEdit} onChange={(event) => onMove(item, event.target.value)}>
           {inventoryCategories.map((option) => <option value={option} key={option}>{option}</option>)}
         </select>
-        {!isConsumable && (
-          <button
-            type="button"
-            className={`inventory-state${available ? "" : " inactive"}`}
-            aria-pressed={!available}
-            title={available ? "Mark out of service" : "Mark in service"}
-            disabled={!canEdit}
-            onClick={() => onUpdate(item, { inventory_available: !available })}
-          >
-            <i />
-            <span>{available ? "In service" : "Out of service"}</span>
-          </button>
-        )}
+        {!isConsumable && <span className={`inventory-state${available ? "" : " inactive"}`}><i /><span>{availableQuantity} in / {unavailableQuantity} out</span></span>}
       </div>
-      {!isConsumable && !available && (
-        <input
-          className="inventory-note"
-          aria-label="Status note"
-          placeholder="Status note"
-          value={note}
-          disabled={!canEdit}
-          onChange={(event) => setNote(event.target.value)}
-          onBlur={saveNote}
-          onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
-        />
+      {!isConsumable && (
+        <div className="inventory-service-editor">
+          <label>
+            <span>Out of service</span>
+            <input type="number" min="0" max={totalQuantity} step="any" value={unavailableDraft} disabled={!canEdit} onChange={(event) => setUnavailableDraft(event.target.value)} />
+          </label>
+          {canEdit && <button type="button" onClick={saveUnavailableQuantity}>Update</button>}
+        </div>
       )}
+      {!isConsumable && unavailableQuantity > 0 && <input className="inventory-note" aria-label="Status note" placeholder="Status note" value={note} disabled={!canEdit} onChange={(event) => setNote(event.target.value)} onBlur={saveNote} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />}
     </article>
   );
 }

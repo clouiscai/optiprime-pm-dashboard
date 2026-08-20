@@ -1498,7 +1498,50 @@ h2 {
   align-items: start;
 }
 
+.inventory-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.inventory-toolbar > span {
+  color: var(--op-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.inventory-filter {
+  display: inline-grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--op-line);
+  border-radius: 6px;
+  background: #eef1f4;
+}
+
+.inventory-filter button {
+  min-height: 30px;
+  padding: 0 12px;
+  border-color: transparent;
+  background: transparent;
+  color: #596579;
+  font-size: 12px;
+}
+
+.inventory-filter button.active {
+  border-color: #ccd2d9;
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 1px 3px rgba(31, 35, 41, 0.08);
+}
+
 .inventory-lane {
+  display: flex;
+  flex-direction: column;
+  height: clamp(360px, 54vh, 560px);
   min-width: 0;
   padding: 0 10px 10px;
   border-top: 3px solid #8b95a3;
@@ -1536,8 +1579,13 @@ h2 {
 
 .inventory-lane-items {
   display: grid;
+  align-content: start;
   gap: 8px;
-  min-height: 62px;
+  min-height: 0;
+  padding-right: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .inventory-empty {
@@ -1573,6 +1621,11 @@ h2 {
 .inventory-item.unavailable {
   border-color: #d4a3a8;
   background: #f5e9ea;
+}
+
+.inventory-item.partial {
+  border-color: #d5bd83;
+  background: #fffaf0;
 }
 
 .inventory-item-main,
@@ -1656,6 +1709,36 @@ h2 {
   min-height: 32px;
   background: rgba(255, 255, 255, 0.78);
   font-size: 12px;
+}
+
+.inventory-service-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.inventory-service-editor label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.inventory-service-editor label span {
+  color: var(--op-muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.inventory-service-editor input,
+.inventory-service-editor button {
+  min-height: 32px;
+  font-size: 12px;
+}
+
+.inventory-service-editor button {
+  padding-inline: 10px;
 }
 
 .locked-field {
@@ -2511,7 +2594,7 @@ progress {
 
 .team-spending-row {
   display: grid;
-  grid-template-columns: 130px minmax(180px, 1fr) 190px;
+  grid-template-columns: 110px minmax(180px, 1fr);
   align-items: center;
   gap: 14px;
 }
@@ -2523,16 +2606,6 @@ progress {
 
 .team-spending-label strong {
   font-size: 15px;
-}
-
-.team-spending-label span,
-.team-allocation-label {
-  color: var(--op-muted);
-  font-size: 12px;
-}
-
-.team-allocation-label {
-  text-align: right;
 }
 
 .team-spending-track {
@@ -2562,6 +2635,82 @@ progress {
   transform: translateX(-1px);
   background: #111827;
   box-shadow: 0 0 0 2px #ffffff;
+}
+
+.team-spending-track::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  width: max-content;
+  max-width: 220px;
+  padding: 7px 9px;
+  transform: translate(-50%, 4px);
+  border-radius: 5px;
+  background: #111827;
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 1.45;
+  opacity: 0;
+  pointer-events: none;
+  white-space: pre-line;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.team-spending-track:hover::after,
+.team-spending-track:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.team-spending-axis {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  margin: -8px 0 0 124px;
+  border-top: 1px solid #aeb6c0;
+}
+
+.team-spending-axis span {
+  position: relative;
+  padding-top: 7px;
+  color: #687386;
+  font-size: 10px;
+  text-align: center;
+}
+
+.team-spending-axis span::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  width: 1px;
+  height: 4px;
+  background: #aeb6c0;
+}
+
+.team-spending-axis span:first-child {
+  text-align: left;
+}
+
+.team-spending-axis span:first-child::before {
+  left: 0;
+}
+
+.team-spending-axis span:last-child {
+  text-align: right;
+}
+
+.team-spending-axis span:last-child::before {
+  right: 0;
+  left: auto;
+}
+
+.team-spending-axis-label {
+  margin: -16px 0 0;
+  color: var(--op-muted);
+  font-size: 10px;
+  text-align: right;
 }
 
 .spending-type-list {
@@ -3964,6 +4113,7 @@ progress {
   }
 
   .inventory-lane {
+    height: 430px;
     padding-inline: 8px;
   }
 
@@ -3988,18 +4138,12 @@ progress {
   }
 
   .team-spending-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 7px 10px;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 8px;
   }
 
-  .team-spending-track {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-
-  .team-allocation-label {
-    grid-column: 2;
-    grid-row: 1;
+  .team-spending-axis {
+    margin-left: 72px;
   }
 
   .spending-type-list,
