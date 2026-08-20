@@ -215,6 +215,7 @@ class BudgetLogBase(BaseModel):
     adjustment_rate: float = Field(default=0, ge=0)
     inventory_category: str = Field(default="Unsorted", max_length=40)
     inventory_available: bool = True
+    inventory_unavailable_quantity: float = Field(default=0, ge=0)
     inventory_note: str = Field(default="", max_length=220)
 
 
@@ -239,6 +240,7 @@ class BudgetLogUpdate(BaseModel):
     adjustment_rate: float | None = Field(default=None, ge=0)
     inventory_category: str | None = Field(default=None, max_length=40)
     inventory_available: bool | None = None
+    inventory_unavailable_quantity: float | None = Field(default=None, ge=0)
     inventory_note: str | None = Field(default=None, max_length=220)
 
 

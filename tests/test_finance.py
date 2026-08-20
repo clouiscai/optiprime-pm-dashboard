@@ -3,7 +3,7 @@ import io
 import unittest
 from datetime import date
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -397,6 +397,49 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(summaries["Items"]["categories"], [{"category": "Hardware", "amount": 110}])
         self.assertEqual(summaries["Services"]["amount"], 50)
         self.assertEqual(summaries["Team Enablement"]["amount"], 25)
+
+    def test_inventory_tracks_partial_out_of_service_quantity(self):
+        item = BudgetLog(
+            project_id=self.project_id,
+            category="Item",
+            quantity=5,
+            amount=50,
+            date=date(2026, 7, 8),
+        )
+        self.db.add(item)
+        self.db.commit()
+
+        asyncio.run(
+            update_budget_log(
+                item.id,
+                BudgetLogUpdate(inventory_unavailable_quantity=2),
+                "test-token",
+                self.db,
+            )
+        )
+        self.assertEqual(item.inventory_unavailable_quantity, 2)
+        self.assertTrue(item.inventory_available)
+
+        asyncio.run(
+            update_budget_log(
+                item.id,
+                BudgetLogUpdate(inventory_unavailable_quantity=5),
+                "test-token",
+                self.db,
+            )
+        )
+        self.assertFalse(item.inventory_available)
+
+        with self.assertRaises(HTTPException) as context:
+            asyncio.run(
+                update_budget_log(
+                    item.id,
+                    BudgetLogUpdate(inventory_unavailable_quantity=6),
+                    "test-token",
+                    self.db,
+                )
+            )
+        self.assertEqual(context.exception.status_code, 400)
 
     def test_seed_does_not_reassign_general_invoice_lines(self):
         invoice = Invoice(
