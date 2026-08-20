@@ -2272,7 +2272,7 @@ progress {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: 1000;
   display: grid;
   place-items: center;
   background: rgba(7, 7, 8, 0.62);
@@ -2487,6 +2487,212 @@ progress {
 .blocker-list p {
   margin: 5px 0 0;
   color: #596579;
+}
+
+.dashboard-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dashboard-team-spending .section-head,
+.dashboard-type-spending .section-head {
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.dashboard-team-spending .section-head h2,
+.dashboard-type-spending .section-head h2 {
+  margin: 0;
+}
+
+.team-spending-bars {
+  display: grid;
+  gap: 18px;
+}
+
+.team-spending-row {
+  display: grid;
+  grid-template-columns: 130px minmax(180px, 1fr) 190px;
+  align-items: center;
+  gap: 14px;
+}
+
+.team-spending-label {
+  display: grid;
+  gap: 3px;
+}
+
+.team-spending-label strong {
+  font-size: 15px;
+}
+
+.team-spending-label span,
+.team-allocation-label {
+  color: var(--op-muted);
+  font-size: 12px;
+}
+
+.team-allocation-label {
+  text-align: right;
+}
+
+.team-spending-track {
+  position: relative;
+  height: 16px;
+  overflow: visible;
+  background: #edf0f3;
+  border: 1px solid #d7dde4;
+}
+
+.team-spending-track i {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: var(--team-chart-color);
+}
+
+.team-spending-track i.negative {
+  background: #c92a2a;
+}
+
+.team-spending-track b {
+  position: absolute;
+  top: -5px;
+  width: 3px;
+  height: 24px;
+  transform: translateX(-1px);
+  background: #111827;
+  box-shadow: 0 0 0 2px #ffffff;
+}
+
+.spending-type-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 22px;
+}
+
+.spending-type-card {
+  min-width: 0;
+  padding: 4px 0 8px;
+}
+
+.spending-type-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.spending-type-heading strong {
+  font-size: 16px;
+}
+
+.spending-type-heading span {
+  font-weight: 800;
+}
+
+.spending-type-track {
+  height: 8px;
+  margin: 10px 0 14px;
+  background: #edf0f3;
+}
+
+.spending-type-track i {
+  display: block;
+  height: 100%;
+  background: #59697c;
+}
+
+.type-items .spending-type-track i {
+  background: #111827;
+}
+
+.type-services .spending-type-track i {
+  background: #ff3b3b;
+}
+
+.type-team-enablement .spending-type-track i {
+  background: #6b7280;
+}
+
+.item-category-breakdown {
+  display: grid;
+}
+
+.item-category-breakdown div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--op-line);
+  font-size: 12px;
+}
+
+.item-category-breakdown span {
+  color: var(--op-muted);
+}
+
+.allocation-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.72fr) minmax(420px, 1.28fr);
+  align-items: center;
+  gap: 24px;
+}
+
+.allocation-pie-panel {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+}
+
+.allocation-pie {
+  display: grid;
+  place-items: center;
+  width: min(240px, 100%);
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.allocation-pie > div {
+  display: grid;
+  place-items: center;
+  width: 58%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #ffffff;
+  text-align: center;
+  padding: 10px;
+}
+
+.allocation-pie strong {
+  font-size: 16px;
+}
+
+.allocation-pie span {
+  color: var(--op-muted);
+  font-size: 11px;
+}
+
+.allocation-pie-legend {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+}
+
+.allocation-pie-legend div {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.allocation-pie-legend i {
+  width: 10px;
+  height: 10px;
+}
+
+.allocation-editor-layout .plan-table-wrap table {
+  min-width: 430px;
 }
 
 @media (max-width: 1080px) {
@@ -3771,5 +3977,74 @@ progress {
 
   .inventory-item-controls select {
     width: 50%;
+  }
+
+  .dashboard-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-summary-grid .metric:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .team-spending-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px 10px;
+  }
+
+  .team-spending-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .team-allocation-label {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .spending-type-list,
+  .allocation-editor-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .spending-type-card + .spending-type-card {
+    padding-top: 14px;
+    border-top: 1px solid var(--op-line);
+  }
+
+  .allocation-editor-layout {
+    align-items: stretch;
+  }
+
+  .allocation-pie {
+    width: 210px;
+  }
+
+  .allocation-editor-layout .plan-table-wrap table {
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .allocation-editor-layout .plan-table-wrap th,
+  .allocation-editor-layout .plan-table-wrap td {
+    padding: 8px 5px;
+  }
+
+  .allocation-editor-layout .plan-table-wrap th:nth-child(1) {
+    width: 27%;
+  }
+
+  .allocation-editor-layout .plan-table-wrap th:nth-child(2) {
+    width: 36%;
+  }
+
+  .allocation-editor-layout .plan-table-wrap th:nth-child(3) {
+    width: 17%;
+  }
+
+  .allocation-editor-layout .plan-table-wrap input,
+  .allocation-editor-layout .plan-table-wrap button {
+    width: 100%;
+    min-width: 0;
   }
 }

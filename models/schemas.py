@@ -418,6 +418,7 @@ class DashboardRead(BaseModel):
     unallocated_budget: float = 0
     unallocated_actual_spend: float = 0
     unallocated_remaining: float = 0
+    spending_type_summaries: list[dict[str, Any]] = Field(default_factory=list)
     status_counts: dict[str, int]
     priority_counts: dict[str, int]
     team_summaries: list[dict[str, Any]] = Field(default_factory=list)

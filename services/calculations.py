@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy.orm import Session, joinedload
 
 from models.entities import Blocker, BOMItem, BudgetLog, Project, Sponsor, Task, Team
-from services.finance import project_purchase_allocations
+from services.finance import project_purchase_allocations, project_spending_type_summaries
 
 
 def task_with_open_blockers(task: Task) -> dict:
@@ -106,6 +106,7 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
     sponsor_total = round(sum(sponsor.amount for sponsor in sponsors), 2)
     expected_spend = bom_total
     actual_spend = budget_log_total
+    spending_type_summaries = project_spending_type_summaries(all_logs, purchase_allocations, team_id)
 
     status_counts: dict[str, int] = {"todo": 0, "in_progress": 0, "blocked": 0, "done": 0}
     priority_counts: dict[str, int] = {}
@@ -165,6 +166,7 @@ def project_dashboard(db: Session, project: Project, team_id: int | None = None)
         "unallocated_budget": unallocated_budget,
         "unallocated_actual_spend": unallocated_actual_spend,
         "unallocated_remaining": unallocated_remaining,
+        "spending_type_summaries": spending_type_summaries,
         "status_counts": status_counts,
         "priority_counts": priority_counts,
         "team_summaries": team_summaries,

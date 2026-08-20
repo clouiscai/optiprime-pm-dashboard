@@ -20,7 +20,7 @@ from api.routes import (
 )
 from database.seed import assign_existing_unscoped_records
 from database.session import Base
-from models.entities import BOMItem, BudgetLog, Invoice, Project, Team
+from models.entities import BOMItem, BudgetLog, BudgetLogReference, Invoice, Project, Team
 from models.schemas import BudgetLogCreate, BudgetLogUpdate, InvoicePurchaseCreate, InvoiceUpdate
 from services.calculations import project_dashboard
 
@@ -342,6 +342,61 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(shared_item.inventory_category, "Equipment")
         self.assertFalse(shared_item.inventory_available)
         self.assertEqual(shared_item.inventory_note, "Awaiting repair")
+
+    def test_dashboard_groups_spending_by_type_and_inventory_category(self):
+        invoice = Invoice(
+            project_id=self.project_id,
+            vendor="Mixed Supplier",
+            description="Dashboard classification",
+            original_filename="",
+            stored_filename="",
+        )
+        self.db.add(invoice)
+        self.db.flush()
+        hardware = BudgetLog(
+            project_id=self.project_id,
+            invoice_id=invoice.id,
+            category="Item",
+            inventory_category="Assets",
+            amount=100,
+            date=date(2026, 7, 7),
+        )
+        service = BudgetLog(
+            project_id=self.project_id,
+            invoice_id=invoice.id,
+            category="Service",
+            amount=50,
+            date=date(2026, 7, 7),
+        )
+        enablement = BudgetLog(
+            project_id=self.project_id,
+            invoice_id=invoice.id,
+            category="Enablement",
+            amount=25,
+            date=date(2026, 7, 7),
+        )
+        self.db.add_all([hardware, service, enablement])
+        self.db.flush()
+        tax = BudgetLog(
+            project_id=self.project_id,
+            invoice_id=invoice.id,
+            category="Tax",
+            amount=10,
+            date=date(2026, 7, 7),
+        )
+        self.db.add(tax)
+        self.db.flush()
+        tax.reference_links = [BudgetLogReference(target_log_id=hardware.id)]
+        self.db.commit()
+
+        dashboard = project_dashboard(self.db, self.db.get(Project, self.project_id))
+        summaries = {summary["type"]: summary for summary in dashboard["spending_type_summaries"]}
+
+        self.assertEqual(dashboard["actual_spend"], 185)
+        self.assertEqual(summaries["Items"]["amount"], 110)
+        self.assertEqual(summaries["Items"]["categories"], [{"category": "Hardware", "amount": 110}])
+        self.assertEqual(summaries["Services"]["amount"], 50)
+        self.assertEqual(summaries["Team Enablement"]["amount"], 25)
 
     def test_seed_does_not_reassign_general_invoice_lines(self):
         invoice = Invoice(

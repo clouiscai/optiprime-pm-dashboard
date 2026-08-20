@@ -21,7 +21,7 @@ const teamColors = {
   General: "#64748b",
 };
 const commonCurrencies = ["SGD", "USD", "EUR", "GBP", "JPY", "CNY", "AUD", "CAD", "CHF", "HKD", "MYR", "NZD", "THB", "TWD"];
-const inventoryCategories = ["Unsorted", "Equipment", "Tools", "Assets", "Consumables", "Utilities"];
+const inventoryCategories = ["Unsorted", "Equipment", "Tools", "Hardware", "Consumables", "Utilities"];
 
 const today = new Date().toISOString().slice(0, 10);
 const dayMs = 24 * 60 * 60 * 1000;
@@ -118,7 +118,12 @@ function invoiceLineTone(category) {
 function isInventoryPurchase(category) {
   if (isInvoiceAdjustment(category)) return false;
   const words = new Set((category || "").trim().toLocaleLowerCase().replaceAll("-", " ").replaceAll("_", " ").split(/\s+/));
-  return !["shipping", "freight", "fee", "fees", "duty", "handling", "service", "services", "labour", "labor"].some((word) => words.has(word));
+  return !["shipping", "freight", "fee", "fees", "duty", "handling", "service", "services", "labour", "labor", "enablement"].some((word) => words.has(word));
+}
+
+function normalizeInventoryCategory(category) {
+  if (category === "Assets") return "Hardware";
+  return inventoryCategories.includes(category) ? category : "Unsorted";
 }
 
 function invoiceDraftLineTotal(draft, purchases) {
@@ -281,10 +286,10 @@ export default function App() {
         teams: apiFetch(`/projects/${projectId}/teams`, token),
         dashboard: apiFetch(`/projects/${projectId}/dashboard${query}`, token),
       };
-      if (["Dashboard", "Tasks", "Kanban", "Gantt", "tasks"].includes(normalizedScope)) {
+      if (["Tasks", "Kanban", "Gantt", "tasks"].includes(normalizedScope)) {
         requests.tasks = apiFetch(`/projects/${projectId}/tasks${query}`, token);
       }
-      if (["Dashboard", "Tasks", "tasks"].includes(normalizedScope)) {
+      if (["Tasks", "tasks"].includes(normalizedScope)) {
         requests.blockers = apiFetch(`/projects/${projectId}/blockers${query}`, token);
       }
       if (["Tasks", "Members"].includes(normalizedScope)) {
@@ -557,16 +562,18 @@ export default function App() {
           <div>
             <h1>{activeTab}</h1>
           </div>
-          <div className="topbar-meta">
-            <label>
-              From
-              <input type="date" value={timelineStart} onChange={(event) => setTimelineStart(event.target.value)} />
-            </label>
-            <label>
-              To
-              <input type="date" value={timelineEnd} onChange={(event) => setTimelineEnd(event.target.value)} />
-            </label>
-          </div>
+          {["Tasks", "Kanban", "Gantt"].includes(activeTab) && (
+            <div className="topbar-meta">
+              <label>
+                From
+                <input type="date" value={timelineStart} onChange={(event) => setTimelineStart(event.target.value)} />
+              </label>
+              <label>
+                To
+                <input type="date" value={timelineEnd} onChange={(event) => setTimelineEnd(event.target.value)} />
+              </label>
+            </div>
+          )}
         </header>
 
         {toast && (
@@ -580,9 +587,7 @@ export default function App() {
           {activeTab === "Dashboard" && (
             <Dashboard
               dashboard={data.dashboard}
-              tasks={data.tasks}
               teams={data.teams}
-              projectId={projectId}
               token={token}
               selectedTeam={selectedTeam}
               canEdit={canEdit}
@@ -674,63 +679,98 @@ export default function App() {
   );
 }
 
-function Dashboard({ dashboard, tasks, teams, projectId, token, selectedTeam, canEdit, onRefresh }) {
+function Dashboard({ dashboard, teams, token, selectedTeam, canEdit, onRefresh }) {
+  const [showPlan, setShowPlan] = useState(false);
   if (!dashboard) return null;
-  const overdue = tasks.filter((task) => task.due_date && task.due_date < today && task.status !== "done");
+  const summaryByTeam = new Map((dashboard.team_summaries || []).map((team) => [team.id, team]));
+  const teamRows = teams
+    .filter((team) => selectedTeam === "master" || String(team.id) === String(selectedTeam))
+    .map((team) => ({
+      id: team.id,
+      code: team.code,
+      allocation: Number(team.budget || 0),
+      spending: Number(summaryByTeam.get(team.id)?.actual_spend || 0),
+    }));
+  if (selectedTeam === "master") {
+    teamRows.push({ id: "general", code: "General", allocation: Number(dashboard.unallocated_budget || 0), spending: Number(dashboard.unallocated_actual_spend || 0) });
+  }
+  const teamScale = Math.max(1, ...teamRows.flatMap((row) => [Math.abs(row.allocation), Math.abs(row.spending)]));
+  const typeSummaries = dashboard.spending_type_summaries || [];
+  const typeScale = Math.max(1, ...typeSummaries.map((summary) => Math.abs(Number(summary.amount || 0))));
   return (
-    <section className="stack">
-      <div className="metrics-grid">
-        <Metric label="Completion" value={`${dashboard.completion}%`} detail={`${dashboard.done_tasks}/${dashboard.total_tasks} tasks done`} />
-        <Metric label="Active blockers" value={dashboard.active_blockers} detail="Open engineering constraints" tone={dashboard.active_blockers ? "warn" : ""} />
-        <Metric label="Budget used" value={money(dashboard.actual_spend)} detail={`${money(dashboard.remaining_budget)} remaining`} />
-        <Metric label="Overdue" value={dashboard.overdue_tasks} detail="Tasks past due" tone={dashboard.overdue_tasks ? "danger" : ""} />
+    <section className="stack finance-dashboard">
+      <div className="metrics-grid dashboard-summary-grid">
+        <Metric label="Planned Budget" value={money(dashboard.planned_budget)} />
+        <Metric label="Spending" value={money(dashboard.actual_spend)} />
+        <Metric label="Remaining" value={money(dashboard.remaining_budget)} tone={dashboard.remaining_budget < 0 ? "danger" : ""} />
       </div>
-      {selectedTeam === "master" && (
-        <div className="team-rollup">
-          {dashboard.team_summaries.map((team) => (
-            <article key={team.id}>
-              <div>
-                <strong>{team.code}</strong>
-                <span>{team.domain}</span>
+      <section className="section-card dashboard-team-spending">
+        <div className="section-head">
+          <div>
+            <h2>Spending by Team</h2>
+            <p>Bars show spending. Markers show allocated budget.</p>
+          </div>
+          {canEdit && <button type="button" onClick={() => setShowPlan(true)}>Edit Allocation</button>}
+        </div>
+        <div className="team-spending-bars">
+          {teamRows.map((row) => {
+            const color = teamColors[row.code] || "#7b8794";
+            return (
+              <div className="team-spending-row" key={row.id} style={{ "--team-chart-color": color }}>
+                <div className="team-spending-label">
+                  <strong>{row.code}</strong>
+                  <span>{money(row.spending)}</span>
+                </div>
+                <div className="team-spending-track">
+                  <i className={row.spending < 0 ? "negative" : ""} style={{ width: `${Math.min(100, (Math.abs(row.spending) / teamScale) * 100)}%` }} />
+                  <b style={{ left: `${Math.min(100, (Math.abs(row.allocation) / teamScale) * 100)}%` }} />
+                </div>
+                <span className="team-allocation-label">Allocated {money(row.allocation)}</span>
               </div>
-              <b>{team.completion}%</b>
-              <span>{money(team.actual_spend)} used</span>
-              <i>{team.open_blockers} blockers</i>
+            );
+          })}
+        </div>
+      </section>
+      <section className="section-card dashboard-type-spending">
+        <div className="section-head">
+          <div>
+            <h2>Spending by Type</h2>
+            <p>Invoice totals grouped by how the purchase supports the project.</p>
+          </div>
+        </div>
+        <div className="spending-type-list">
+          {typeSummaries.map((summary) => (
+            <article className={`spending-type-card type-${summary.type.toLocaleLowerCase().replaceAll(" ", "-")}`} key={summary.type}>
+              <div className="spending-type-heading">
+                <strong>{summary.type}</strong>
+                <span>{money(summary.amount)}</span>
+              </div>
+              <div className="spending-type-track"><i style={{ width: `${Math.min(100, (Math.abs(Number(summary.amount || 0)) / typeScale) * 100)}%` }} /></div>
+              {summary.categories?.length > 0 && (
+                <div className="item-category-breakdown">
+                  {summary.categories.map((category) => (
+                    <div key={category.category}><span>{category.category}</span><strong>{money(category.amount)}</strong></div>
+                  ))}
+                </div>
+              )}
             </article>
           ))}
+          {typeSummaries.length === 0 && <p className="empty-note">Spending will appear after invoice lines are added.</p>}
         </div>
+      </section>
+      {showPlan && (
+        <BudgetPlanModal
+          token={token}
+          teams={teams}
+          teamSummaries={dashboard.team_summaries || []}
+          selectedTeam={selectedTeam}
+          plannedBudget={dashboard.planned_budget || 0}
+          unallocatedActualSpend={dashboard.unallocated_actual_spend || 0}
+          canEdit={canEdit}
+          onRefresh={onRefresh}
+          onClose={() => setShowPlan(false)}
+        />
       )}
-      {selectedTeam === "master" && (
-        <TeamSetup projectId={projectId} token={token} teams={teams} canEdit={canEdit} onRefresh={onRefresh} />
-      )}
-      <div className="dashboard-band">
-        <div>
-          <h2>Flow</h2>
-          <div className="bars">
-            {statusColumns.map(([key, label]) => (
-              <div className="bar-row" key={key}>
-                <span>{label}</span>
-                <div>
-                  <i style={{ width: `${Math.max(6, (dashboard.status_counts[key] / Math.max(1, dashboard.total_tasks)) * 100)}%` }} />
-                </div>
-                <b>{dashboard.status_counts[key] || 0}</b>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div>
-          <h2>Attention</h2>
-          <div className="attention-list">
-            {overdue.length === 0 && <p>No overdue tasks.</p>}
-            {overdue.map((task) => (
-              <article key={task.id}>
-                <strong>{task.title}</strong>
-                <span>{task.owner || "Unassigned"} - due {shortDate(task.due_date)}</span>
-              </article>
-            ))}
-          </div>
-        </div>
-      </div>
     </section>
   );
 }
@@ -1645,6 +1685,7 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
     "Item",
     "Material",
     "Service",
+    "Enablement",
     "Shipping",
     "Tax",
     "Fee",
@@ -2283,7 +2324,7 @@ function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDe
   );
 }
 
-function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBudget, unallocatedActualSpend, canEdit, onRefresh, onClose }) {
+function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBudget, canEdit, onRefresh, onClose }) {
   const [edits, setEdits] = useState({});
   const [savingTeamId, setSavingTeamId] = useState(null);
   const summaryByTeam = new Map(teamSummaries.map((summary) => [summary.id, summary]));
@@ -2310,7 +2351,19 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
   });
   const allocationTotal = allocationRows.reduce((total, team) => total + team.allocation, 0);
   const unallocatedBudget = plannedBudget - allocationTotal;
-  const unallocatedRemaining = unallocatedBudget - unallocatedActualSpend;
+  const pieRows = [
+    ...allocationRows.map((team) => ({ code: team.code, amount: Math.max(0, team.allocation), color: teamColors[team.code] || "#7b8794" })),
+    ...(selectedTeam === "master" ? [{ code: "General", amount: Math.max(0, unallocatedBudget), color: teamColors.General }] : []),
+  ].filter((row) => row.amount > 0);
+  const pieTotal = pieRows.reduce((total, row) => total + row.amount, 0);
+  let pieCursor = 0;
+  const pieGradient = pieRows.length > 0
+    ? `conic-gradient(${pieRows.map((row) => {
+      const start = pieCursor;
+      pieCursor += (row.amount / pieTotal) * 100;
+      return `${row.color} ${start}% ${pieCursor}%`;
+    }).join(", ")})`
+    : "#e3e8ef";
 
   useEffect(() => {
     setEdits(Object.fromEntries(baseRows.map((team) => [team.id, team.allocation])));
@@ -2336,67 +2389,52 @@ function BudgetPlanModal({ token, teams, teamSummaries, selectedTeam, plannedBud
           </div>
           <button onClick={onClose}>Close</button>
         </header>
-        <div className="plan-summary">
-          <article>
-            <span>Allocated to teams</span>
-            <strong>{money(allocationTotal)}</strong>
-          </article>
-          <article>
-            <span>Unallocated</span>
-            <strong>{money(unallocatedBudget)}</strong>
-          </article>
-        </div>
-        <div className="table-wrap plan-table-wrap">
-          <table>
-            <thead>
-              <tr><th>Team</th><th>Allocation</th><th>Spent</th><th>Remaining</th><th>Share</th>{canEdit && <th></th>}</tr>
-            </thead>
-            <tbody>
-              {allocationRows.map((team) => (
-                <tr key={team.id}>
-                  <td>
-                    <strong>{team.code}</strong>
-                    <span>{team.name}</span>
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={edits[team.id] ?? 0}
-                      disabled={!canEdit}
-                      onChange={(event) => setEdits({ ...edits, [team.id]: event.target.value })}
-                    />
-                  </td>
-                  <td>{money(team.actualSpend)}</td>
-                  <td className={team.remaining < 0 ? "over-budget" : ""}>{money(team.remaining)}</td>
-                  <td>{plannedBudget ? `${Math.round((team.allocation / plannedBudget) * 100)}%` : "0%"}</td>
-                  {canEdit && (
-                    <td>
-                      <button onClick={() => saveAllocation(team.id)} disabled={savingTeamId === team.id}>
-                        {savingTeamId === team.id ? "Saving" : "Save"}
-                      </button>
-                    </td>
-                  )}
-                </tr>
+        <div className="allocation-editor-layout">
+          <div className="allocation-pie-panel">
+            <div className="allocation-pie" style={{ background: pieGradient }} role="img" aria-label="Budget allocation weightages">
+              <div><strong>{money(plannedBudget)}</strong><span>Project budget</span></div>
+            </div>
+            <div className="allocation-pie-legend">
+              {pieRows.map((row) => (
+                <div key={row.code}><i style={{ background: row.color }} /><span>{row.code}</span><strong>{plannedBudget ? `${Math.round((row.amount / plannedBudget) * 100)}%` : "0%"}</strong></div>
               ))}
-              {selectedTeam === "master" && (
-                <tr className="general-allocation-row">
-                  <td><strong>General</strong><span>Shared project spending</span></td>
-                  <td>{money(unallocatedBudget)}</td>
-                  <td>{money(unallocatedActualSpend)}</td>
-                  <td className={unallocatedRemaining < 0 ? "over-budget" : ""}>{money(unallocatedRemaining)}</td>
-                  <td>{plannedBudget ? `${Math.round((unallocatedBudget / plannedBudget) * 100)}%` : "0%"}</td>
-                  {canEdit && <td><span>Automatic</span></td>}
-                </tr>
-              )}
-              {allocationRows.length === 0 && (
-                <tr>
-                  <td colSpan={canEdit ? "6" : "5"}>No team allocation entries yet.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+            </div>
+          </div>
+          <div className="table-wrap plan-table-wrap">
+            <table>
+              <thead>
+                <tr><th>Team</th><th>Allocation</th><th>Weight</th>{canEdit && <th></th>}</tr>
+              </thead>
+              <tbody>
+                {allocationRows.map((team) => (
+                  <tr key={team.id}>
+                    <td><strong>{team.code}</strong><span>{team.name}</span></td>
+                    <td>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={edits[team.id] ?? 0}
+                        disabled={!canEdit}
+                        onChange={(event) => setEdits({ ...edits, [team.id]: event.target.value })}
+                      />
+                    </td>
+                    <td>{plannedBudget ? `${Math.round((team.allocation / plannedBudget) * 100)}%` : "0%"}</td>
+                    {canEdit && <td><button onClick={() => saveAllocation(team.id)} disabled={savingTeamId === team.id}>{savingTeamId === team.id ? "Saving" : "Save"}</button></td>}
+                  </tr>
+                ))}
+                {selectedTeam === "master" && (
+                  <tr className="general-allocation-row">
+                    <td><strong>General</strong><span>Unallocated funds</span></td>
+                    <td>{money(unallocatedBudget)}</td>
+                    <td>{plannedBudget ? `${Math.round((unallocatedBudget / plannedBudget) * 100)}%` : "0%"}</td>
+                    {canEdit && <td><span>Automatic</span></td>}
+                  </tr>
+                )}
+                {allocationRows.length === 0 && <tr><td colSpan={canEdit ? "4" : "3"}>No team allocation entries yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </div>
       </article>
     </div>
@@ -2546,7 +2584,7 @@ function Inventory({ selectedTeam, token, teams, invoices, canEdit, onRefresh })
     ))
   ), [invoices, selectedTeamId]);
   const unavailableCount = purchasedItems.filter((item) => item.inventory_available === false).length;
-  const classifiedCount = purchasedItems.filter((item) => item.inventory_category && item.inventory_category !== "Unsorted").length;
+  const classifiedCount = purchasedItems.filter((item) => normalizeInventoryCategory(item.inventory_category) !== "Unsorted").length;
   const totalQuantity = purchasedItems.reduce((total, item) => total + Number(item.quantity || 0), 0);
 
   async function updateItem(item, patch) {
@@ -2555,7 +2593,7 @@ function Inventory({ selectedTeam, token, teams, invoices, canEdit, onRefresh })
   }
 
   async function moveItem(item, category) {
-    if (!canEdit || !category || category === (item.inventory_category || "Unsorted")) return;
+    if (!canEdit || !category || category === normalizeInventoryCategory(item.inventory_category)) return;
     const patch = { inventory_category: category };
     if (category === "Consumables") patch.inventory_available = true;
     await updateItem(item, patch);
@@ -2580,7 +2618,7 @@ function Inventory({ selectedTeam, token, teams, invoices, canEdit, onRefresh })
 
       <div className="inventory-board">
         {inventoryCategories.map((category) => {
-          const items = purchasedItems.filter((item) => (item.inventory_category || "Unsorted") === category);
+          const items = purchasedItems.filter((item) => normalizeInventoryCategory(item.inventory_category) === category);
           return (
             <section
               className={`inventory-lane${dropCategory === category ? " drop-target" : ""}`}
@@ -2618,7 +2656,7 @@ function Inventory({ selectedTeam, token, teams, invoices, canEdit, onRefresh })
 }
 
 function InventoryItem({ item, teams, canEdit, onUpdate, onMove, onDragStart, onDragEnd }) {
-  const category = item.inventory_category || "Unsorted";
+  const category = normalizeInventoryCategory(item.inventory_category);
   const isConsumable = category === "Consumables";
   const available = item.inventory_available !== false;
   const [note, setNote] = useState(item.inventory_note || "");
