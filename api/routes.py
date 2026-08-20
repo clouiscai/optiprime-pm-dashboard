@@ -914,16 +914,6 @@ async def update_budget_log(log_id: int, payload: BudgetLogUpdate, _: Writable, 
     quantity = updates.get("quantity", log.quantity)
     updates["quantity"] = quantity
     updates["amount"] = amount_in_sgd(original_amount * quantity, exchange_rate)
-    if "inventory_unavailable_quantity" in updates:
-        unavailable_quantity = updates["inventory_unavailable_quantity"]
-        if unavailable_quantity > quantity:
-            raise HTTPException(400, "Out-of-service quantity cannot exceed the purchased quantity")
-        updates["inventory_available"] = unavailable_quantity < quantity
-    elif "inventory_available" in updates:
-        updates["inventory_unavailable_quantity"] = 0 if updates["inventory_available"] else quantity
-    elif quantity < log.inventory_unavailable_quantity:
-        updates["inventory_unavailable_quantity"] = quantity
-        updates["inventory_available"] = False
     if linked_invoice:
         updates["date"] = linked_invoice.invoice_date or log.date
         updates["sponsored_by"] = linked_invoice.sponsored_by

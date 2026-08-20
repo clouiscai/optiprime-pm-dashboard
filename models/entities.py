@@ -146,7 +146,6 @@ class BudgetLog(Base):
     adjustment_rate: Mapped[float] = mapped_column(Float, default=0.0)
     inventory_category: Mapped[str] = mapped_column(String(40), default="Unsorted")
     inventory_available: Mapped[bool] = mapped_column(Boolean, default=True)
-    inventory_unavailable_quantity: Mapped[float] = mapped_column(Float, default=0.0)
     inventory_note: Mapped[str] = mapped_column(String(220), default="")
 
     project: Mapped[Project] = relationship(back_populates="budget_logs")
