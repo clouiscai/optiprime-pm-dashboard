@@ -12,7 +12,6 @@ database/*.db-wal
 database/supabase_migration.sql
 frontend/node_modules/
 frontend/dist/
-public/
 .env
 .env.*
 !.env.example

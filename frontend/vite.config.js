@@ -6,7 +6,7 @@ export default defineConfig({
   build: {
     outDir: "../public",
     assetsDir: "static-v2",
-    emptyOutDir: false,
+    emptyOutDir: true,
   },
   server: {
     port: 5173,
