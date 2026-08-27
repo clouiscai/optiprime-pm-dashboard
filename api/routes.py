@@ -947,11 +947,22 @@ async def delete_budget_log(log_id: int, _: Writable, db: Session = Depends(get_
     log = db.get(BudgetLog, log_id)
     if not log:
         raise HTTPException(404, "Budget log not found")
-    if db.query(BudgetLogReference).filter(BudgetLogReference.target_log_id == log_id).first():
-        raise HTTPException(409, "This item is used by a tax or discount line. Remove that reference first.")
     project_id = log.project_id
     invoice_id = log.invoice_id
     linked_invoice = db.get(Invoice, invoice_id) if invoice_id else None
+    affected_adjustment_ids = [
+        source_id
+        for (source_id,) in db.query(BudgetLogReference.source_log_id)
+        .filter(BudgetLogReference.target_log_id == log_id)
+        .all()
+    ]
+    db.query(BudgetLogReference).filter(BudgetLogReference.target_log_id == log_id).delete(
+        synchronize_session=False
+    )
+    for source_id in affected_adjustment_ids:
+        source = db.get(BudgetLog, source_id)
+        if source:
+            db.expire(source, ["reference_links"])
     db.query(Invoice).filter(Invoice.budget_log_id == log.id).update({Invoice.budget_log_id: None}, synchronize_session=False)
     db.delete(log)
     db.flush()

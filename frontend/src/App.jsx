@@ -1752,8 +1752,12 @@ function Finance({ projectId, selectedTeam, token, teams, dashboard, invoices, c
 
   async function deletePurchase(log) {
     if (!window.confirm(`Delete line "${log.notes || log.category}"?`)) return;
-    await apiFetch(`/budget/${log.id}`, token, { method: "DELETE" });
-    await onRefresh();
+    try {
+      await apiFetch(`/budget/${log.id}`, token, { method: "DELETE" });
+      await onRefresh();
+    } catch (error) {
+      window.alert(error.message || "Invoice line could not be deleted.");
+    }
   }
 
   async function uploadInvoice(event) {
@@ -2094,13 +2098,14 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
 
   async function addPurchase(event) {
     event.preventDefault();
+    const quantity = Number(purchaseDraft.quantity);
     if (!purchaseDraft.category.trim()) return;
     if (purchaseDraftIsAdjustment && purchaseDraft.adjustment_mode === "percentage" && Number(purchaseDraft.adjustment_rate) <= 0) {
       window.alert("Enter a percentage greater than zero.");
       return;
     }
     if (purchaseDraft.adjustment_mode !== "percentage" && purchaseDraft.original_amount === "") return;
-    if (Number(purchaseDraft.quantity) <= 0) {
+    if (!Number.isFinite(quantity) || quantity <= 0) {
       window.alert("Quantity must be greater than zero.");
       return;
     }
@@ -2110,7 +2115,7 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
     }
     await onAddPurchase(invoice.id, {
       category: purchaseDraft.category.trim(),
-      quantity: Number(purchaseDraft.quantity),
+      quantity,
       original_amount: purchaseDraftIsAdjustment && purchaseDraft.adjustment_mode === "percentage" ? 0 : Number(purchaseDraft.original_amount),
       adjustment_mode: purchaseDraftIsAdjustment ? purchaseDraft.adjustment_mode : "amount",
       adjustment_rate: purchaseDraftIsAdjustment && purchaseDraft.adjustment_mode === "percentage" ? Number(purchaseDraft.adjustment_rate) : 0,
@@ -2212,7 +2217,7 @@ function InvoiceCard({ invoice, teams, canEdit, onView, onDelete, onPatch, onAdd
           {purchaseDraftIsAdjustment ? (
             <label className="compact-field"><span>Method</span><select value={purchaseDraft.adjustment_mode} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, adjustment_mode: event.target.value })}><option value="amount">Amount</option><option value="percentage">Percent</option></select></label>
           ) : (
-            <label className="compact-field"><span>Quantity</span><input type="number" min="0.000001" step="any" value={purchaseDraft.quantity} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, quantity: event.target.value })} /></label>
+            <label className="compact-field"><span>Quantity</span><input type="text" inputMode="decimal" value={purchaseDraft.quantity} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, quantity: event.target.value })} /></label>
           )}
           {purchaseDraftIsAdjustment && purchaseDraft.adjustment_mode === "percentage" ? (
             <label className="compact-field"><span>Rate (%)</span><input type="number" min="0.000001" step="any" value={purchaseDraft.adjustment_rate} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, adjustment_rate: event.target.value })} /></label>
@@ -2260,7 +2265,8 @@ function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDe
   const draftLineTotal = invoiceDraftLineTotal(draft, purchases);
 
   async function save() {
-    if (Number(draft.quantity) <= 0) {
+    const quantity = Number(draft.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
       window.alert("Quantity must be greater than zero.");
       return;
     }
@@ -2274,7 +2280,7 @@ function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDe
     }
     await onPatch(purchase.id, {
       category: draft.category.trim(),
-      quantity: Number(draft.quantity),
+      quantity,
       original_amount: draftIsAdjustment && draft.adjustment_mode === "percentage" ? 0 : Number(draft.original_amount),
       adjustment_mode: draftIsAdjustment ? draft.adjustment_mode : "amount",
       adjustment_rate: draftIsAdjustment && draft.adjustment_mode === "percentage" ? Number(draft.adjustment_rate) : Number(purchase.inventory_unavailable_quantity || 0),
@@ -2298,7 +2304,7 @@ function InvoicePurchaseRow({ purchase, purchases, teams, canEdit, onPatch, onDe
           {draftIsAdjustment ? (
             <label className="mobile-line-field"><span>Method</span><select aria-label="Adjustment method" value={draft.adjustment_mode} onChange={(event) => setDraft({ ...draft, adjustment_mode: event.target.value })}><option value="amount">Amount</option><option value="percentage">Percent</option></select></label>
           ) : (
-            <label className="mobile-line-field"><span>Qty</span><input aria-label="Quantity" type="number" min="0.000001" step="any" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} /></label>
+            <label className="mobile-line-field"><span>Qty</span><input aria-label="Quantity" type="text" inputMode="decimal" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} /></label>
           )}
           {draftIsAdjustment && draft.adjustment_mode === "percentage" ? (
             <label className="mobile-line-field"><span>Rate (%)</span><input aria-label="Percentage rate" type="number" min="0.000001" step="any" value={draft.adjustment_rate} onChange={(event) => setDraft({ ...draft, adjustment_rate: event.target.value })} /></label>

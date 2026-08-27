@@ -11,6 +11,7 @@ from api.routes import (
     amount_in_sgd,
     create_budget_log,
     create_invoice_purchase,
+    delete_budget_log,
     delete_invoice,
     delete_invoice_file,
     replace_invoice_file,
@@ -342,6 +343,61 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(shared_item.inventory_category, "Equipment")
         self.assertFalse(shared_item.inventory_available)
         self.assertEqual(shared_item.inventory_note, "Awaiting repair")
+
+    def test_deleting_referenced_invoice_item_recalculates_adjustments(self):
+        invoice = Invoice(
+            project_id=self.project_id,
+            vendor="Reference Supplier",
+            description="Referenced item deletion",
+            currency="SGD",
+            exchange_rate_to_sgd=1,
+            original_filename="",
+            stored_filename="",
+        )
+        self.db.add(invoice)
+        self.db.commit()
+
+        first = asyncio.run(
+            create_invoice_purchase(
+                invoice.id,
+                InvoicePurchaseCreate(category="Item", quantity=2, original_amount=100, notes="First item", team_ids=[self.uav_id]),
+                "test-token",
+                self.db,
+            )
+        )
+        second = asyncio.run(
+            create_invoice_purchase(
+                invoice.id,
+                InvoicePurchaseCreate(category="Item", quantity=1, original_amount=50, notes="Second item", team_ids=[self.uav_id]),
+                "test-token",
+                self.db,
+            )
+        )
+        tax = asyncio.run(
+            create_invoice_purchase(
+                invoice.id,
+                InvoicePurchaseCreate(
+                    category="Tax",
+                    original_amount=0,
+                    adjustment_mode="percentage",
+                    adjustment_rate=10,
+                    notes="Tax",
+                    referenced_item_ids=[first.id, second.id],
+                ),
+                "test-token",
+                self.db,
+            )
+        )
+        self.assertEqual(tax.original_amount, 25)
+
+        response = asyncio.run(delete_budget_log(first.id, "test-token", self.db))
+        self.assertEqual(response.status_code, 204)
+        self.assertIsNone(self.db.get(BudgetLog, first.id))
+        self.db.refresh(tax)
+        self.db.refresh(invoice)
+        self.assertEqual(tax.referenced_item_ids, [second.id])
+        self.assertEqual(tax.original_amount, 5)
+        self.assertEqual(invoice.original_amount, 55)
 
     def test_dashboard_groups_spending_by_type_and_inventory_category(self):
         invoice = Invoice(
